@@ -49,11 +49,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
-  // --- API CONNECTION LOGIC (UPDATED) ---
+  // --- NEW STREAMING API CONNECTION ---
   const handleSendMessage = async () => {
     if (!textInput.trim()) return;
 
-    // 1. Update UI immediately with user message
+    // 1. Add User Message
     const userMsg = { id: Date.now(), type: 'user', text: textInput };
     setMessages(prev => [...prev, userMsg]);
     const messageToSend = textInput;
@@ -61,28 +61,43 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      // 2. Send to Backend (Real Connection)
+      // 2. Prepare for AI Message (Empty placeholder)
+      const aiMsgId = Date.now() + 1;
+      setMessages(prev => [...prev, { id: aiMsgId, type: 'ai', text: '' }]);
+
+      // 3. Start Stream Request
       const response = await fetch('http://127.0.0.1:8000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: messageToSend }),
       });
 
-      const data = await response.json();
+      if (!response.body) throw new Error("ReadableStream not supported.");
 
-      // 3. Display AI Response
-      setMessages(prev => [...prev, {
-        id: Date.now() + 1,
-        type: 'ai',
-        text: data.response
-      }]);
+      // 4. Read the Stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let aiText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Decode chunk and update UI instantly
+        const chunk = decoder.decode(value, { stream: true });
+        aiText += chunk;
+
+        setMessages(prev =>
+          prev.map(msg => msg.id === aiMsgId ? { ...msg, text: aiText } : msg)
+        );
+      }
 
     } catch (error) {
-      console.error("Connection Error:", error);
+      console.error("Stream Error:", error);
       setMessages(prev => [...prev, {
-        id: Date.now() + 1,
+        id: Date.now() + 2,
         type: 'ai',
-        text: "⚠️ Error: Could not reach Lumira Backend. Is main.py running on port 8000?"
+        text: "⚠️ Connection interrupted. Please check backend."
       }]);
     } finally {
       setIsLoading(false);
@@ -95,7 +110,6 @@ export default function App() {
   };
 
   const toggleListening = () => {
-    // Basic Simulation for now
     setIsListening(!isListening);
     if (!isListening) {
       setTimeout(() => {
@@ -112,9 +126,7 @@ export default function App() {
   // --- Exhibitor State ---
   const [files, setFiles] = useState([]);
 
-  // --- API UPLOAD LOGIC (UPDATED) ---
   const handleFileUpload = async () => {
-    // Simulating file pick for prototype
     const dummyContent = "Manual content...";
     const blob = new Blob([dummyContent], { type: 'text/plain' });
     const file = new File([blob], "manual_upload.txt", { type: "text/plain" });
@@ -186,11 +198,12 @@ export default function App() {
           <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] rounded-2xl p-4 ${msg.type === 'user' ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-200 border border-slate-700'}`}>
               {msg.type === 'ai' && <div className="flex items-center gap-2 mb-2 text-violet-400 text-xs font-bold uppercase"><Sparkles size={12}/> Lumira AI</div>}
-              <p className="text-sm">{msg.text}</p>
+              {/* Added whitespace-pre-wrap to preserve formatting */}
+              <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
             </div>
           </div>
         ))}
-        {isLoading && <div className="text-slate-500 text-xs text-center animate-pulse">Thinking...</div>}
+        {isLoading && !messages[messages.length - 1]?.text && <div className="text-slate-500 text-xs text-center animate-pulse">Thinking...</div>}
         <div ref={chatEndRef} />
       </div>
 
