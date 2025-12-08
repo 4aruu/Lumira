@@ -23,16 +23,20 @@ const Waveform = ({ isActive }) => (
 );
 
 const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon }) => {
-  const baseStyle = "flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all duration-200 active:scale-95 shadow-lg";
+  const baseStyle = "flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all duration-200 active:scale-95 shadow-lg relative overflow-hidden group";
   const variants = {
     primary: "bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:shadow-violet-500/25 border border-white/10",
-    secondary: "bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-700",
+    secondary: "bg-slate-800/80 backdrop-blur text-slate-200 hover:bg-slate-700/80 border border-slate-700",
     ghost: "bg-transparent hover:bg-white/5 text-slate-400 hover:text-white shadow-none"
   };
   return (
     <button onClick={onClick} className={`${baseStyle} ${variants[variant]} ${className}`}>
-      {Icon && <Icon className="w-5 h-5" />}
-      {children}
+      {/* Shine effect on hover */}
+      <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent z-10" />
+      <span className="relative z-20 flex items-center gap-2">
+        {Icon && <Icon className="w-5 h-5" />}
+        {children}
+      </span>
     </button>
   );
 };
@@ -49,11 +53,24 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
-  // --- NEW STREAMING API CONNECTION ---
+  // --- VOICE LOGIC ---
+  const speakText = (text) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(v => v.name.includes('Google US English')) || voices[0];
+      utterance.voice = preferredVoice;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // --- API CONNECTION ---
   const handleSendMessage = async () => {
     if (!textInput.trim()) return;
 
-    // 1. Add User Message
     const userMsg = { id: Date.now(), type: 'user', text: textInput };
     setMessages(prev => [...prev, userMsg]);
     const messageToSend = textInput;
@@ -61,11 +78,9 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      // 2. Prepare for AI Message (Empty placeholder)
       const aiMsgId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiMsgId, type: 'ai', text: '' }]);
 
-      // 3. Start Stream Request
       const response = await fetch('http://127.0.0.1:8000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -74,22 +89,31 @@ export default function App() {
 
       if (!response.body) throw new Error("ReadableStream not supported.");
 
-      // 4. Read the Stream
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let aiText = '';
+      let sentenceBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        // Decode chunk and update UI instantly
         const chunk = decoder.decode(value, { stream: true });
         aiText += chunk;
+        sentenceBuffer += chunk;
+
+        if (sentenceBuffer.match(/[.!?]\s*$/)) {
+            speakText(sentenceBuffer);
+            sentenceBuffer = '';
+        }
 
         setMessages(prev =>
           prev.map(msg => msg.id === aiMsgId ? { ...msg, text: aiText } : msg)
         );
+      }
+
+      if (sentenceBuffer.trim()) {
+          speakText(sentenceBuffer);
       }
 
     } catch (error) {
@@ -110,22 +134,39 @@ export default function App() {
   };
 
   const toggleListening = () => {
-    setIsListening(!isListening);
-    if (!isListening) {
-      setTimeout(() => {
-        setIsListening(false);
-        setTextInput("What connects this device?");
-      }, 2000);
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice input requires Chrome/Edge/Safari.");
+      return;
     }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setTextInput(transcript);
+    };
+
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
   };
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // --- Exhibitor State ---
+  // --- Exhibitor Logic ---
   const [files, setFiles] = useState([]);
-
   const handleFileUpload = async () => {
     const dummyContent = "Manual content...";
     const blob = new Blob([dummyContent], { type: 'text/plain' });
@@ -134,15 +175,8 @@ export default function App() {
     formData.append("file", file);
 
     try {
-        await fetch('http://127.0.0.1:8000/api/upload', {
-            method: 'POST',
-            body: formData,
-        });
-        const newFile = {
-            name: "manual_upload.txt",
-            size: '12 KB',
-            date: new Date().toLocaleDateString()
-        };
+        await fetch('http://127.0.0.1:8000/api/upload', { method: 'POST', body: formData });
+        const newFile = { name: "manual_upload.txt", size: '12 KB', date: new Date().toLocaleDateString() };
         setFiles([newFile, ...files]);
         alert("File uploaded to backend 'Dataset' folder!");
     } catch (error) {
@@ -150,10 +184,9 @@ export default function App() {
     }
   };
 
-  // --- Render Views ---
+  // --- Views ---
   const renderLanding = () => (
-    <div className="flex flex-col h-full items-center justify-center p-6 relative overflow-hidden animate-in fade-in">
-      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_0%,rgba(124,58,237,0.2),transparent_50%)]" />
+    <div className="flex flex-col h-full items-center justify-center p-6 relative overflow-hidden animate-in fade-in z-10">
       <div className="z-10 text-center space-y-8 max-w-md w-full">
         <div className="flex justify-center mb-6">
           <div className="w-20 h-20 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-violet-500/30">
@@ -161,7 +194,10 @@ export default function App() {
           </div>
         </div>
         <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-white tracking-tight">LUMIRA</h1>
+          {/* UPDATED: High Contrast Shine Effect */}
+          <h1 className="text-5xl md:text-6xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-400 via-white to-slate-400 bg-[length:200%_auto] animate-shine drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
+            LUMIRA
+          </h1>
           <p className="text-violet-200/60 text-lg">AI Exhibition Assistant</p>
         </div>
         <div className="grid grid-cols-1 gap-4 w-full">
@@ -173,7 +209,7 @@ export default function App() {
   );
 
   const renderScanner = () => (
-    <div className="flex flex-col h-full bg-black relative animate-in fade-in">
+    <div className="flex flex-col h-full bg-black relative animate-in fade-in z-20">
       <div className="absolute top-6 left-6 z-20" onClick={() => setView('landing')}><X className="text-white" /></div>
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 opacity-50" />
@@ -186,29 +222,28 @@ export default function App() {
   );
 
   const renderChat = () => (
-    <div className="flex flex-col h-full bg-slate-950 animate-in slide-in-from-right duration-300">
-      <div className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-4 z-20">
+    <div className="flex flex-col h-full animate-in slide-in-from-right duration-300 z-10 relative">
+      <div className="h-16 border-b border-slate-800/50 bg-slate-900/60 backdrop-blur-md flex items-center justify-between px-4 z-20">
         <button onClick={() => setView('landing')} className="text-slate-400 hover:text-white"><ChevronLeft /></button>
-
-        {/* UPDATED: Generic Chat Header */}
         <span className="text-white font-medium">Lumira Assistant</span>
-
         <MoreVertical className="text-slate-400" />
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-4 ${msg.type === 'user' ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-200 border border-slate-700'}`}>
+            <div className={`max-w-[85%] rounded-2xl p-4 backdrop-blur-sm ${
+              msg.type === 'user'
+                ? 'bg-violet-600/90 text-white shadow-lg shadow-violet-500/10 border border-violet-500/20'
+                : 'bg-slate-800/80 text-slate-200 border border-slate-700/50'
+            }`}>
 
-              {/* UPDATED: User Tag added here */}
               {msg.type === 'user' && (
                 <div className="flex items-center justify-end gap-2 mb-2 text-violet-200 text-xs font-bold uppercase">
                   YOU <User size={12}/>
                 </div>
               )}
 
-              {/* Bot Tag */}
               {msg.type === 'ai' && (
                 <div className="flex items-center gap-2 mb-2 text-violet-400 text-xs font-bold uppercase">
                   <Sparkles size={12}/> Lumira AI
@@ -223,27 +258,29 @@ export default function App() {
         <div ref={chatEndRef} />
       </div>
 
-      <div className="p-4 bg-slate-900 border-t border-slate-800">
+      <div className="p-4 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-md">
         <div className="flex items-center gap-3">
             <div className="flex-1 relative">
                 <input
                     type="text" value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     placeholder="Ask about this product..."
-                    className="w-full bg-slate-800 text-white rounded-full pl-4 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 border border-slate-700"
+                    className="w-full bg-slate-800/80 text-white rounded-full pl-4 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 border border-slate-700/50 placeholder:text-slate-500"
                     onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                 />
                 <button onClick={handleSendMessage} className="absolute right-2 top-1/2 -translate-y-1/2 text-violet-400 hover:text-white"><Send size={16} /></button>
             </div>
-            <button onClick={toggleListening} className={`p-3 rounded-full border ${isListening ? 'bg-red-500 border-red-500 text-white' : 'bg-slate-800 border-slate-700 text-violet-400'}`}><Mic size={24} /></button>
+            <button onClick={toggleListening} className={`p-3 rounded-full border transition-all duration-300 ${isListening ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-slate-800/80 border-slate-700/50 text-violet-400'}`}>
+                <Mic size={24} />
+            </button>
         </div>
       </div>
     </div>
   );
 
   const renderExhibitorDash = () => (
-    <div className="flex h-full bg-slate-950">
-      <div className="w-64 border-r border-slate-800 bg-slate-900 hidden md:flex flex-col p-6">
+    <div className="flex h-full z-10 relative">
+      <div className="w-64 border-r border-slate-800/50 bg-slate-900/60 backdrop-blur-md hidden md:flex flex-col p-6">
         <div className="flex items-center gap-3 mb-8"><div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center"><Sparkles className="text-white" size={16}/></div><span className="text-xl font-bold text-white">LUMIRA</span></div>
         <div className="space-y-2 flex-1">
              <div className="flex items-center gap-3 px-4 py-3 bg-violet-600/10 text-violet-400 rounded-xl border border-violet-600/20"><BarChart3 size={20}/><span className="font-medium">Dashboard</span></div>
@@ -252,14 +289,14 @@ export default function App() {
       </div>
       <div className="flex-1 p-8 overflow-y-auto">
         <h2 className="text-2xl font-bold text-white mb-6">Knowledge Base</h2>
-        <div className="border-2 border-dashed border-slate-700 rounded-xl p-12 text-center bg-slate-900/50 cursor-pointer hover:border-violet-500 transition-colors" onClick={handleFileUpload}>
+        <div className="border-2 border-dashed border-slate-700/50 rounded-xl p-12 text-center bg-slate-900/40 cursor-pointer hover:border-violet-500/50 transition-colors backdrop-blur-sm" onClick={handleFileUpload}>
             <UploadCloud size={48} className="mx-auto text-violet-400 mb-4"/>
             <p className="text-white font-medium">Click to upload Datasheet</p>
             <p className="text-slate-500 text-sm mt-1">Files will be saved to /Dataset folder</p>
         </div>
         <div className="mt-8 space-y-3">
              {files.map((f, i) => (
-                 <div key={i} className="flex items-center justify-between p-4 bg-slate-800 rounded-xl border border-slate-700"><div className="flex items-center gap-3"><FileText className="text-slate-400"/><span className="text-white text-sm">{f.name}</span></div><span className="text-green-400 text-xs">Uploaded</span></div>
+                 <div key={i} className="flex items-center justify-between p-4 bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50"><div className="flex items-center gap-3"><FileText className="text-slate-400"/><span className="text-white text-sm">{f.name}</span></div><span className="text-green-400 text-xs">Uploaded</span></div>
              ))}
         </div>
       </div>
@@ -267,7 +304,15 @@ export default function App() {
   );
 
   return (
-    <div className="w-full h-screen bg-slate-950 text-white font-sans selection:bg-violet-500/30 overflow-hidden">
+    <div className="w-full h-screen text-white font-sans selection:bg-violet-500/30 overflow-hidden relative bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+
+      {/* --- GLOBAL BREATHING GLOW EFFECT --- */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-[10%] -left-[10%] w-[50%] h-[50%] rounded-full bg-violet-600/20 blur-[120px] animate-blob" />
+        <div className="absolute -bottom-[10%] -right-[10%] w-[50%] h-[50%] rounded-full bg-indigo-600/20 blur-[120px] animate-blob animation-delay-2000" />
+        <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] rounded-full bg-fuchsia-600/5 blur-[100px] animate-blob animation-delay-4000" />
+      </div>
+
       {view === 'landing' && renderLanding()}
       {view === 'scanner' && renderScanner()}
       {view === 'chat' && renderChat()}
