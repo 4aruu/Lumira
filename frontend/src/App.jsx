@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Mic, Send, QrCode, UploadCloud, FileText, BarChart3,
   Users, Settings, ChevronLeft, X, MessageSquare,
-  Sparkles, Zap, Shield, MoreVertical, LogOut
+  Sparkles, Zap, Shield, MoreVertical, LogOut, User
 } from 'lucide-react';
 
 // --- Components ---
@@ -189,7 +189,10 @@ export default function App() {
     <div className="flex flex-col h-full bg-slate-950 animate-in slide-in-from-right duration-300">
       <div className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md flex items-center justify-between px-4 z-20">
         <button onClick={() => setView('landing')} className="text-slate-400 hover:text-white"><ChevronLeft /></button>
-        <span className="text-white font-medium">Headphones X1</span>
+
+        {/* UPDATED: Generic Chat Header */}
+        <span className="text-white font-medium">Lumira Assistant</span>
+
         <MoreVertical className="text-slate-400" />
       </div>
 
@@ -197,8 +200,21 @@ export default function App() {
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] rounded-2xl p-4 ${msg.type === 'user' ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-200 border border-slate-700'}`}>
-              {msg.type === 'ai' && <div className="flex items-center gap-2 mb-2 text-violet-400 text-xs font-bold uppercase"><Sparkles size={12}/> Lumira AI</div>}
-              {/* Added whitespace-pre-wrap to preserve formatting */}
+
+              {/* UPDATED: User Tag added here */}
+              {msg.type === 'user' && (
+                <div className="flex items-center justify-end gap-2 mb-2 text-violet-200 text-xs font-bold uppercase">
+                  YOU <User size={12}/>
+                </div>
+              )}
+
+              {/* Bot Tag */}
+              {msg.type === 'ai' && (
+                <div className="flex items-center gap-2 mb-2 text-violet-400 text-xs font-bold uppercase">
+                  <Sparkles size={12}/> Lumira AI
+                </div>
+              )}
+
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
             </div>
           </div>
