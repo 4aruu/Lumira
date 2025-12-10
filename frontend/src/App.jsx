@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Mic, Send, QrCode, UploadCloud, FileText, BarChart3,
   Users, Settings, ChevronLeft, X, MessageSquare,
-  Sparkles, Zap, Shield, MoreVertical, LogOut, User
+  Sparkles, Zap, Shield, MoreVertical, LogOut, User, Mail, Lock
 } from 'lucide-react';
 
 // --- Components ---
@@ -22,16 +22,15 @@ const Waveform = ({ isActive }) => (
   </div>
 );
 
-const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon }) => {
-  const baseStyle = "flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all duration-200 active:scale-95 shadow-lg relative overflow-hidden group";
+const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled }) => {
+  const baseStyle = "flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all duration-200 active:scale-95 shadow-lg relative overflow-hidden group disabled:opacity-50 disabled:cursor-not-allowed";
   const variants = {
     primary: "bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:shadow-violet-500/25 border border-white/10",
     secondary: "bg-slate-800/80 backdrop-blur text-slate-200 hover:bg-slate-700/80 border border-slate-700",
     ghost: "bg-transparent hover:bg-white/5 text-slate-400 hover:text-white shadow-none"
   };
   return (
-    <button onClick={onClick} className={`${baseStyle} ${variants[variant]} ${className}`}>
-      {/* Shine effect on hover */}
+    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${className}`}>
       <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent z-10" />
       <span className="relative z-20 flex items-center gap-2">
         {Icon && <Icon className="w-5 h-5" />}
@@ -52,6 +51,12 @@ export default function App() {
   const [textInput, setTextInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
+
+  // --- Auth State (New) ---
+  const [authStep, setAuthStep] = useState('email'); // 'email' or 'otp'
+  const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
 
   // --- VOICE LOGIC ---
   const speakText = (text) => {
@@ -184,6 +189,30 @@ export default function App() {
     }
   };
 
+  // --- Auth Logic (Mock) ---
+  const handleSendOtp = () => {
+    if (!email) return alert("Please enter an email");
+    setIsSendingOtp(true);
+    // Simulate AWS SES/Cognito delay
+    setTimeout(() => {
+        setIsSendingOtp(false);
+        setAuthStep('otp');
+        alert(`OTP sent to ${email} (Check console/mock)`);
+    }, 1500);
+  };
+
+  const handleVerifyOtp = () => {
+    if (otp.length !== 6) return alert("Enter valid 6-digit OTP");
+    setIsSendingOtp(true);
+    // Simulate Verification
+    setTimeout(() => {
+        setIsSendingOtp(false);
+        setAuthStep('email'); // Reset for next time
+        setOtp('');
+        setView('exhibitor-dash');
+    }, 1000);
+  };
+
   // --- Views ---
   const renderLanding = () => (
     <div className="flex flex-col h-full items-center justify-center p-6 relative overflow-hidden animate-in fade-in z-10">
@@ -194,7 +223,6 @@ export default function App() {
           </div>
         </div>
         <div className="space-y-2">
-          {/* UPDATED: High Contrast Shine Effect */}
           <h1 className="text-5xl md:text-6xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-400 via-white to-slate-400 bg-[length:200%_auto] animate-shine drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
             LUMIRA
           </h1>
@@ -202,7 +230,71 @@ export default function App() {
         </div>
         <div className="grid grid-cols-1 gap-4 w-full">
           <Button onClick={handleScan} icon={QrCode} className="w-full py-4 text-lg">Scan Product QR</Button>
-          <Button variant="secondary" onClick={() => setView('exhibitor-dash')} className="w-full">Exhibitor Portal</Button>
+          <Button variant="secondary" onClick={() => setView('exhibitor-login')} className="w-full">Exhibitor Portal</Button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderExhibitorLogin = () => (
+    <div className="flex flex-col items-center justify-center h-full p-6 relative z-10 animate-in fade-in">
+      <div className="w-full max-w-sm bg-slate-900/60 backdrop-blur-xl p-8 rounded-2xl border border-slate-700/50 shadow-2xl relative overflow-hidden">
+        {/* Shine effect on card */}
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500 to-transparent opacity-50" />
+
+        <div className="flex justify-center mb-6">
+           <div className="w-12 h-12 bg-violet-600 rounded-lg flex items-center justify-center shadow-lg shadow-violet-500/20">
+             <Shield className="text-white" />
+           </div>
+        </div>
+
+        <h2 className="text-2xl font-bold text-white text-center mb-2">Exhibitor Login</h2>
+        <p className="text-slate-400 text-center text-sm mb-8">
+            {authStep === 'email' ? 'Enter your registered email to receive an OTP.' : `Enter the code sent to ${email}`}
+        </p>
+
+        <div className="space-y-4">
+            {authStep === 'email' ? (
+                <div>
+                    <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">Email Address</label>
+                    <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="name@company.com"
+                            className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600"
+                        />
+                    </div>
+                    <Button onClick={handleSendOtp} disabled={isSendingOtp} className="w-full mt-6">
+                        {isSendingOtp ? 'Sending...' : 'Send Access Code'}
+                    </Button>
+                </div>
+            ) : (
+                <div className="animate-in slide-in-from-right">
+                    <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">One-Time Password</label>
+                    <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
+                        <input
+                            type="text"
+                            value={otp}
+                            onChange={(e) => setOtp(e.target.value)}
+                            placeholder="123456"
+                            maxLength={6}
+                            className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white text-center tracking-[0.5em] font-mono text-lg focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600 placeholder:tracking-normal"
+                        />
+                    </div>
+                    <Button onClick={handleVerifyOtp} disabled={isSendingOtp} className="w-full mt-6">
+                        {isSendingOtp ? 'Verifying...' : 'Verify & Login'}
+                    </Button>
+                    <button onClick={() => setAuthStep('email')} className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400 transition-colors">
+                        Change Email
+                    </button>
+                </div>
+            )}
+
+            <Button variant="ghost" onClick={() => setView('landing')} className="w-full text-sm mt-2">Back to Home</Button>
         </div>
       </div>
     </div>
@@ -316,6 +408,7 @@ export default function App() {
       {view === 'landing' && renderLanding()}
       {view === 'scanner' && renderScanner()}
       {view === 'chat' && renderChat()}
+      {view === 'exhibitor-login' && renderExhibitorLogin()}
       {view === 'exhibitor-dash' && renderExhibitorDash()}
     </div>
   );
