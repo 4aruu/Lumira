@@ -55,11 +55,15 @@ export default function App() {
   const chatEndRef = useRef(null);
 
   // --- Auth State ---
-  const [authStep, setAuthStep] = useState('email'); // 'email' or 'otp'
+  const [authStep, setAuthStep] = useState('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [sessionId, setSessionId] = useState(''); // 🔹 comes from /otp/generate
+  const [sessionId, setSessionId] = useState('');
+
+  // --- Exhibitor State ---
+  const [files, setFiles] = useState([]);
+  const fileInputRef = useRef(null); // Reference for hidden file input
 
   // --- VOICE LOGIC ---
   const speakText = (text) => {
@@ -173,102 +177,100 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // --- Exhibitor Logic ---
-  const [files, setFiles] = useState([]);
-  const handleFileUpload = async () => {
-    const dummyContent = "Manual content...";
-    const blob = new Blob([dummyContent], { type: 'text/plain' });
-    const file = new File([blob], "manual_upload.txt", { type: "text/plain" });
+  // --- Exhibitor Logic (File Upload) ---
+
+  // 1. Trigger the hidden input
+  const triggerFilePicker = () => {
+    fileInputRef.current.click();
+  };
+
+  // 2. Handle the selected file
+  const handleFileSelect = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      alert("Please upload a PDF file.");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
 
+    // Optimistic UI update
+    const newFileEntry = {
+      name: file.name,
+      size: `${(file.size / 1024).toFixed(1)} KB`,
+      date: new Date().toLocaleDateString()
+    };
+    setFiles(prev => [newFileEntry, ...prev]);
+
     try {
-      await fetch('http://127.0.0.1:8000/api/upload', { method: 'POST', body: formData });
-      const newFile = { name: "manual_upload.txt", size: '12 KB', date: new Date().toLocaleDateString() };
-      setFiles([newFile, ...files]);
-      alert("File uploaded to backend 'Dataset' folder!");
+      const response = await fetch('http://127.0.0.1:8000/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Upload failed");
+
+      alert(`Success! Lumira is learning from "${file.name}". This may take a moment.`);
+
     } catch (error) {
-      alert("Upload failed. Is backend running?");
+      console.error(error);
+      alert("Upload failed. Ensure backend is running.");
+      setFiles(prev => prev.filter(f => f !== newFileEntry));
     }
   };
 
+
   // --- Auth Logic (AWS OTP) ---
-const handleSendOtp = async () => {
-  if (!email) return alert("Please enter an email");
-
-  try {
-    setIsSendingOtp(true);
-
-    const res = await fetch(`${OTP_API_BASE_URL}/otp/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-
-    const text = await res.text();
-    console.log("Generate raw:", text);
-
-    if (!res.ok) {
-      alert("Failed to send OTP. Please try again.");
-      return;
+  const handleSendOtp = async () => {
+    if (!email) return alert("Please enter an email");
+    try {
+      setIsSendingOtp(true);
+      const res = await fetch(`${OTP_API_BASE_URL}/otp/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.data?.token) {
+        alert("Failed to send OTP.");
+        return;
+      }
+      setSessionId(data.data.token);
+      setAuthStep("otp");
+      alert(`OTP sent to ${email}.`);
+    } catch (err) {
+      alert("Network error.");
+    } finally {
+      setIsSendingOtp(false);
     }
+  };
 
-    const data = JSON.parse(text);
-
-    if (!data?.data?.token) {
-      alert("OTP sent, but no session ID returned.");
-      return;
+  const handleVerifyOtp = async () => {
+    if (otp.length !== 6) return alert("Enter valid OTP");
+    try {
+      setIsSendingOtp(true);
+      const res = await fetch(`${OTP_API_BASE_URL}/otp/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, token: otp }),
+      });
+      if (!res.ok) {
+        alert("Invalid OTP.");
+        return;
+      }
+      setView("exhibitor-dash");
+      setSessionId(null);
+      setOtp("");
+      setAuthStep("email");
+    } catch (err) {
+      alert("Network error.");
+    } finally {
+      setIsSendingOtp(false);
     }
-
-    setSessionId(data.data.token);   // IMPORTANT FIX
-    setAuthStep("otp");
-
-    alert(`OTP sent to ${email}. Check your inbox.`);
-  } catch (err) {
-    console.error(err);
-    alert("Network error while sending OTP.");
-  } finally {
-    setIsSendingOtp(false);
-  }
-};
-
- const handleVerifyOtp = async () => {
-  if (otp.length !== 6) return alert("Enter valid OTP");
-
-  if (!sessionId) return alert("Missing session. Please request a new OTP.");
-
-  try {
-    setIsSendingOtp(true);
-
-    const res = await fetch(`${OTP_API_BASE_URL}/otp/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: sessionId,
-        token: otp,
-      }),
-    });
-
-    const text = await res.text();
-    console.log("Verify raw:", text);
-
-    if (!res.ok) {
-      alert("Failed to verify OTP. Try again.");
-      return;
-    }
-
-    setView("exhibitor-dash");
-    setSessionId(null);
-    setOtp("");
-    setAuthStep("email");
-
-  } catch (err) {
-    console.error(err);
-    alert("Network error verifying OTP.");
-  } finally {
-    setIsSendingOtp(false);
-  }
-};
+  };
 
   // --- Views ---
   const renderLanding = () => (
@@ -446,11 +448,26 @@ const handleSendOtp = async () => {
       </div>
       <div className="flex-1 p-8 overflow-y-auto">
         <h2 className="text-2xl font-bold text-white mb-6">Knowledge Base</h2>
-        <div className="border-2 border-dashed border-slate-700/50 rounded-xl p-12 text-center bg-slate-900/40 cursor-pointer hover:border-violet-500/50 transition-colors backdrop-blur-sm" onClick={handleFileUpload}>
-          <UploadCloud size={48} className="mx-auto text-violet-400 mb-4"/>
-          <p className="text-white font-medium">Click to upload Datasheet</p>
-          <p className="text-slate-500 text-sm mt-1">Files will be saved to /Dataset folder</p>
+
+        {/* Hidden File Input */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          className="hidden"
+          accept="application/pdf"
+        />
+
+        {/* Drop Zone */}
+        <div
+          onClick={triggerFilePicker}
+          className="border-2 border-dashed border-slate-700/50 rounded-xl p-12 text-center bg-slate-900/40 cursor-pointer hover:border-violet-500/50 transition-colors backdrop-blur-sm group"
+        >
+          <UploadCloud size={48} className="mx-auto text-violet-400 mb-4 group-hover:scale-110 transition-transform"/>
+          <p className="text-white font-medium">Click to upload Datasheet (PDF)</p>
+          <p className="text-slate-500 text-sm mt-1">Files will be indexed automatically.</p>
         </div>
+
         <div className="mt-8 space-y-3">
           {files.map((f, i) => (
             <div key={i} className="flex items-center justify-between p-4 bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50">
@@ -458,7 +475,7 @@ const handleSendOtp = async () => {
                 <FileText className="text-slate-400"/>
                 <span className="text-white text-sm">{f.name}</span>
               </div>
-              <span className="text-green-400 text-xs">Uploaded</span>
+              <span className="text-green-400 text-xs font-bold">● Active</span>
             </div>
           ))}
         </div>

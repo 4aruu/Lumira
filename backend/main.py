@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -7,11 +7,12 @@ import shutil
 import os
 import sys
 
-# Setup path so we can import bot.py
+# Setup path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Import the streaming function we just made in bot.py
 from bot import ask_lumira
+# Import the new ingestion function
+from ingest import ingest_document
 
 app = FastAPI()
 
@@ -29,44 +30,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 class ChatRequest(BaseModel):
     message: str
-
 
 @app.get("/")
 def read_root():
     return {"status": "Lumira Backend Online"}
 
-
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     print(f"📩 Received: {request.message}")
-
-    # We return a StreamingResponse.
-    # This pipes the 'yield' from bot.py directly to the HTTP response.
-    # The client (React) will need to read this stream chunk by chunk.
     return StreamingResponse(
         ask_lumira(request.message),
         media_type="text/plain"
     )
 
-
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
-    # Save to 'Dataset' folder so pdfvectorising.py can find it
+async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    # 1. Define paths
     base_dir = os.path.dirname(os.path.abspath(__file__))
     upload_dir = os.path.join(base_dir, "Dataset")
     os.makedirs(upload_dir, exist_ok=True)
 
     file_path = os.path.join(upload_dir, file.filename)
 
+    # 2. Save the file locally
     with open(file_path, "wb+") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     print(f"📂 Saved file: {file_path}")
-    return {"status": "File uploaded successfully"}
 
+    # 3. Trigger Ingestion in Background
+    # This allows the API to respond "Success" immediately while processing happens
+    background_tasks.add_task(ingest_document, file_path)
+
+    return {"status": "File uploaded successfully. Indexing in progress..."}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
