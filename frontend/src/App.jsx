@@ -5,6 +5,8 @@ import {
   Sparkles, Zap, Shield, MoreVertical, LogOut, User, Mail, Lock
 } from 'lucide-react';
 
+const OTP_API_BASE_URL = "https://jbf1xtgo07.execute-api.us-east-1.amazonaws.com/dev";
+
 // --- Components ---
 
 const Waveform = ({ isActive }) => (
@@ -52,11 +54,12 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
-  // --- Auth State (New) ---
+  // --- Auth State ---
   const [authStep, setAuthStep] = useState('email'); // 'email' or 'otp'
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [sessionId, setSessionId] = useState(''); // 🔹 comes from /otp/generate
 
   // --- VOICE LOGIC ---
   const speakText = (text) => {
@@ -72,7 +75,7 @@ export default function App() {
     }
   };
 
-  // --- API CONNECTION ---
+  // --- API CONNECTION (Chatbot) ---
   const handleSendMessage = async () => {
     if (!textInput.trim()) return;
 
@@ -108,8 +111,8 @@ export default function App() {
         sentenceBuffer += chunk;
 
         if (sentenceBuffer.match(/[.!?]\s*$/)) {
-            speakText(sentenceBuffer);
-            sentenceBuffer = '';
+          speakText(sentenceBuffer);
+          sentenceBuffer = '';
         }
 
         setMessages(prev =>
@@ -118,7 +121,7 @@ export default function App() {
       }
 
       if (sentenceBuffer.trim()) {
-          speakText(sentenceBuffer);
+        speakText(sentenceBuffer);
       }
 
     } catch (error) {
@@ -180,38 +183,92 @@ export default function App() {
     formData.append("file", file);
 
     try {
-        await fetch('http://127.0.0.1:8000/api/upload', { method: 'POST', body: formData });
-        const newFile = { name: "manual_upload.txt", size: '12 KB', date: new Date().toLocaleDateString() };
-        setFiles([newFile, ...files]);
-        alert("File uploaded to backend 'Dataset' folder!");
+      await fetch('http://127.0.0.1:8000/api/upload', { method: 'POST', body: formData });
+      const newFile = { name: "manual_upload.txt", size: '12 KB', date: new Date().toLocaleDateString() };
+      setFiles([newFile, ...files]);
+      alert("File uploaded to backend 'Dataset' folder!");
     } catch (error) {
-        alert("Upload failed. Is backend running?");
+      alert("Upload failed. Is backend running?");
     }
   };
 
-  // --- Auth Logic (Mock) ---
-  const handleSendOtp = () => {
-    if (!email) return alert("Please enter an email");
-    setIsSendingOtp(true);
-    // Simulate AWS SES/Cognito delay
-    setTimeout(() => {
-        setIsSendingOtp(false);
-        setAuthStep('otp');
-        alert(`OTP sent to ${email} (Check console/mock)`);
-    }, 1500);
-  };
+  // --- Auth Logic (AWS OTP) ---
+const handleSendOtp = async () => {
+  if (!email) return alert("Please enter an email");
 
-  const handleVerifyOtp = () => {
-    if (otp.length !== 6) return alert("Enter valid 6-digit OTP");
+  try {
     setIsSendingOtp(true);
-    // Simulate Verification
-    setTimeout(() => {
-        setIsSendingOtp(false);
-        setAuthStep('email'); // Reset for next time
-        setOtp('');
-        setView('exhibitor-dash');
-    }, 1000);
-  };
+
+    const res = await fetch(`${OTP_API_BASE_URL}/otp/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+
+    const text = await res.text();
+    console.log("Generate raw:", text);
+
+    if (!res.ok) {
+      alert("Failed to send OTP. Please try again.");
+      return;
+    }
+
+    const data = JSON.parse(text);
+
+    if (!data?.data?.token) {
+      alert("OTP sent, but no session ID returned.");
+      return;
+    }
+
+    setSessionId(data.data.token);   // IMPORTANT FIX
+    setAuthStep("otp");
+
+    alert(`OTP sent to ${email}. Check your inbox.`);
+  } catch (err) {
+    console.error(err);
+    alert("Network error while sending OTP.");
+  } finally {
+    setIsSendingOtp(false);
+  }
+};
+
+ const handleVerifyOtp = async () => {
+  if (otp.length !== 6) return alert("Enter valid OTP");
+
+  if (!sessionId) return alert("Missing session. Please request a new OTP.");
+
+  try {
+    setIsSendingOtp(true);
+
+    const res = await fetch(`${OTP_API_BASE_URL}/otp/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: sessionId,
+        token: otp,
+      }),
+    });
+
+    const text = await res.text();
+    console.log("Verify raw:", text);
+
+    if (!res.ok) {
+      alert("Failed to verify OTP. Try again.");
+      return;
+    }
+
+    setView("exhibitor-dash");
+    setSessionId(null);
+    setOtp("");
+    setAuthStep("email");
+
+  } catch (err) {
+    console.error(err);
+    alert("Network error verifying OTP.");
+  } finally {
+    setIsSendingOtp(false);
+  }
+};
 
   // --- Views ---
   const renderLanding = () => (
@@ -239,62 +296,61 @@ export default function App() {
   const renderExhibitorLogin = () => (
     <div className="flex flex-col items-center justify-center h-full p-6 relative z-10 animate-in fade-in">
       <div className="w-full max-w-sm bg-slate-900/60 backdrop-blur-xl p-8 rounded-2xl border border-slate-700/50 shadow-2xl relative overflow-hidden">
-        {/* Shine effect on card */}
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500 to-transparent opacity-50" />
 
         <div className="flex justify-center mb-6">
-           <div className="w-12 h-12 bg-violet-600 rounded-lg flex items-center justify-center shadow-lg shadow-violet-500/20">
-             <Shield className="text-white" />
-           </div>
+          <div className="w-12 h-12 bg-violet-600 rounded-lg flex items-center justify-center shadow-lg shadow-violet-500/20">
+            <Shield className="text-white" />
+          </div>
         </div>
 
         <h2 className="text-2xl font-bold text-white text-center mb-2">Exhibitor Login</h2>
         <p className="text-slate-400 text-center text-sm mb-8">
-            {authStep === 'email' ? 'Enter your registered email to receive an OTP.' : `Enter the code sent to ${email}`}
+          {authStep === 'email' ? 'Enter your registered email to receive an OTP.' : `Enter the code sent to ${email}`}
         </p>
 
         <div className="space-y-4">
-            {authStep === 'email' ? (
-                <div>
-                    <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">Email Address</label>
-                    <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="name@company.com"
-                            className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600"
-                        />
-                    </div>
-                    <Button onClick={handleSendOtp} disabled={isSendingOtp} className="w-full mt-6">
-                        {isSendingOtp ? 'Sending...' : 'Send Access Code'}
-                    </Button>
-                </div>
-            ) : (
-                <div className="animate-in slide-in-from-right">
-                    <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">One-Time Password</label>
-                    <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-                        <input
-                            type="text"
-                            value={otp}
-                            onChange={(e) => setOtp(e.target.value)}
-                            placeholder="123456"
-                            maxLength={6}
-                            className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white text-center tracking-[0.5em] font-mono text-lg focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600 placeholder:tracking-normal"
-                        />
-                    </div>
-                    <Button onClick={handleVerifyOtp} disabled={isSendingOtp} className="w-full mt-6">
-                        {isSendingOtp ? 'Verifying...' : 'Verify & Login'}
-                    </Button>
-                    <button onClick={() => setAuthStep('email')} className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400 transition-colors">
-                        Change Email
-                    </button>
-                </div>
-            )}
+          {authStep === 'email' ? (
+            <div>
+              <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">Email Address</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600"
+                />
+              </div>
+              <Button onClick={handleSendOtp} disabled={isSendingOtp} className="w-full mt-6">
+                {isSendingOtp ? 'Sending...' : 'Send Access Code'}
+              </Button>
+            </div>
+          ) : (
+            <div className="animate-in slide-in-from-right">
+              <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">One-Time Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
+                <input
+                  type="text"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="123456"
+                  maxLength={6}
+                  className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white text-center tracking-[0.5em] font-mono text-lg focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600 placeholder:tracking-normal"
+                />
+              </div>
+              <Button onClick={handleVerifyOtp} disabled={isSendingOtp} className="w-full mt-6">
+                {isSendingOtp ? 'Verifying...' : 'Verify & Login'}
+              </Button>
+              <button onClick={() => setAuthStep('email')} className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400 transition-colors">
+                Change Email
+              </button>
+            </div>
+          )}
 
-            <Button variant="ghost" onClick={() => setView('landing')} className="w-full text-sm mt-2">Back to Home</Button>
+          <Button variant="ghost" onClick={() => setView('landing')} className="w-full text-sm mt-2">Back to Home</Button>
         </div>
       </div>
     </div>
@@ -306,7 +362,7 @@ export default function App() {
       <div className="flex-1 flex items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 opacity-50" />
         <div className="relative w-72 h-72 border-2 border-violet-500/50 rounded-3xl z-10 overflow-hidden">
-             <div className="absolute top-0 left-0 w-full h-1 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-[scan_2s_linear_infinite]"></div>
+          <div className="absolute top-0 left-0 w-full h-1 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-[scan_2s_linear_infinite]"></div>
         </div>
         <div className="absolute bottom-20 text-white bg-black/60 px-6 py-3 rounded-full backdrop-blur-md">Align QR Code</div>
       </div>
@@ -352,19 +408,19 @@ export default function App() {
 
       <div className="p-4 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-md">
         <div className="flex items-center gap-3">
-            <div className="flex-1 relative">
-                <input
-                    type="text" value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    placeholder="Ask about this product..."
-                    className="w-full bg-slate-800/80 text-white rounded-full pl-4 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 border border-slate-700/50 placeholder:text-slate-500"
-                    onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                />
-                <button onClick={handleSendMessage} className="absolute right-2 top-1/2 -translate-y-1/2 text-violet-400 hover:text-white"><Send size={16} /></button>
-            </div>
-            <button onClick={toggleListening} className={`p-3 rounded-full border transition-all duration-300 ${isListening ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-slate-800/80 border-slate-700/50 text-violet-400'}`}>
-                <Mic size={24} />
-            </button>
+          <div className="flex-1 relative">
+            <input
+              type="text" value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Ask about this product..."
+              className="w-full bg-slate-800/80 text-white rounded-full pl-4 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 border border-slate-700/50 placeholder:text-slate-500"
+              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+            />
+            <button onClick={handleSendMessage} className="absolute right-2 top-1/2 -translate-y-1/2 text-violet-400 hover:text-white"><Send size={16} /></button>
+          </div>
+          <button onClick={toggleListening} className={`p-3 rounded-full border transition-all duration-300 ${isListening ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-slate-800/80 border-slate-700/50 text-violet-400'}`}>
+            <Mic size={24} />
+          </button>
         </div>
       </div>
     </div>
@@ -373,23 +429,38 @@ export default function App() {
   const renderExhibitorDash = () => (
     <div className="flex h-full z-10 relative">
       <div className="w-64 border-r border-slate-800/50 bg-slate-900/60 backdrop-blur-md hidden md:flex flex-col p-6">
-        <div className="flex items-center gap-3 mb-8"><div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center"><Sparkles className="text-white" size={16}/></div><span className="text-xl font-bold text-white">LUMIRA</span></div>
-        <div className="space-y-2 flex-1">
-             <div className="flex items-center gap-3 px-4 py-3 bg-violet-600/10 text-violet-400 rounded-xl border border-violet-600/20"><BarChart3 size={20}/><span className="font-medium">Dashboard</span></div>
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
+            <Sparkles className="text-white" size={16}/>
+          </div>
+          <span className="text-xl font-bold text-white">LUMIRA</span>
         </div>
-        <button onClick={() => setView('landing')} className="flex items-center gap-3 text-slate-400 hover:text-white"><LogOut size={20}/> Logout</button>
+        <div className="space-y-2 flex-1">
+          <div className="flex items-center gap-3 px-4 py-3 bg-violet-600/10 text-violet-400 rounded-xl border border-violet-600/20">
+            <BarChart3 size={20}/><span className="font-medium">Dashboard</span>
+          </div>
+        </div>
+        <button onClick={() => setView('landing')} className="flex items-center gap-3 text-slate-400 hover:text-white">
+          <LogOut size={20}/> Logout
+        </button>
       </div>
       <div className="flex-1 p-8 overflow-y-auto">
         <h2 className="text-2xl font-bold text-white mb-6">Knowledge Base</h2>
         <div className="border-2 border-dashed border-slate-700/50 rounded-xl p-12 text-center bg-slate-900/40 cursor-pointer hover:border-violet-500/50 transition-colors backdrop-blur-sm" onClick={handleFileUpload}>
-            <UploadCloud size={48} className="mx-auto text-violet-400 mb-4"/>
-            <p className="text-white font-medium">Click to upload Datasheet</p>
-            <p className="text-slate-500 text-sm mt-1">Files will be saved to /Dataset folder</p>
+          <UploadCloud size={48} className="mx-auto text-violet-400 mb-4"/>
+          <p className="text-white font-medium">Click to upload Datasheet</p>
+          <p className="text-slate-500 text-sm mt-1">Files will be saved to /Dataset folder</p>
         </div>
         <div className="mt-8 space-y-3">
-             {files.map((f, i) => (
-                 <div key={i} className="flex items-center justify-between p-4 bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50"><div className="flex items-center gap-3"><FileText className="text-slate-400"/><span className="text-white text-sm">{f.name}</span></div><span className="text-green-400 text-xs">Uploaded</span></div>
-             ))}
+          {files.map((f, i) => (
+            <div key={i} className="flex items-center justify-between p-4 bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50">
+              <div className="flex items-center gap-3">
+                <FileText className="text-slate-400"/>
+                <span className="text-white text-sm">{f.name}</span>
+              </div>
+              <span className="text-green-400 text-xs">Uploaded</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -397,8 +468,6 @@ export default function App() {
 
   return (
     <div className="w-full h-screen text-white font-sans selection:bg-violet-500/30 overflow-hidden relative bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-
-      {/* --- GLOBAL BREATHING GLOW EFFECT --- */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-[10%] -left-[10%] w-[50%] h-[50%] rounded-full bg-violet-600/20 blur-[120px] animate-blob" />
         <div className="absolute -bottom-[10%] -right-[10%] w-[50%] h-[50%] rounded-full bg-indigo-600/20 blur-[120px] animate-blob animation-delay-2000" />
