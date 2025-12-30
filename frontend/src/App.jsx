@@ -58,8 +58,9 @@ export default function App() {
 
   // --- Auto-Fetch Files & URL Params ---
   useEffect(() => {
-    if (view === 'exhibitor-dash') fetchUploadedFiles();
-  }, [view]);
+    // ALWAYS fetch files when the app loads, so the Chat Dropdown is ready
+    fetchUploadedFiles();
+  }, []); // Empty dependency array = Run once on startup
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -440,11 +441,41 @@ export default function App() {
 
   const renderChat = () => (
     <div className="flex flex-col h-full animate-in slide-in-from-right duration-300 z-10 relative">
+
+      {/* --- HEADER WITH DEBUG DROPDOWN --- */}
       <div className="h-16 border-b border-slate-800/50 bg-slate-900/60 backdrop-blur-md flex items-center justify-between px-4 z-20">
-        <button onClick={() => setView('landing')} className="text-slate-400 hover:text-white"><ChevronLeft /></button>
-        <span className="text-white font-medium">Lumira Assistant</span>
+        <div className="flex items-center gap-3">
+            <button onClick={() => setView('landing')} className="text-slate-400 hover:text-white"><ChevronLeft /></button>
+
+            <div className="flex flex-col">
+                <span className="text-white font-medium text-sm">Lumira Assistant</span>
+
+                {/* DEBUG DROPDOWN: Allows switching context without scanning */}
+                <select
+                    className="bg-slate-800 text-xs text-violet-400 border border-slate-700 rounded px-2 py-1 mt-1 outline-none focus:border-violet-500 cursor-pointer"
+                    value={activeFile || ""}
+                    onChange={(e) => {
+                        const newFile = e.target.value;
+                        setActiveFile(newFile);
+                        setMessages([{
+                            id: Date.now(),
+                            type: 'ai',
+                            text: `🔄 Switched context to: ${newFile}`
+                        }]);
+                        speakText(`Switched to ${newFile}`);
+                    }}
+                >
+                    <option value="" disabled>Select a Project (Debug)</option>
+                    {files.map((f, i) => (
+                        <option key={i} value={f.name}>{f.name}</option>
+                    ))}
+                </select>
+            </div>
+        </div>
         <MoreVertical className="text-slate-400" />
       </div>
+
+      {/* --- CHAT MESSAGES AREA --- */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -458,9 +489,11 @@ export default function App() {
         {isLoading && !messages[messages.length - 1]?.text && <div className="text-slate-500 text-xs text-center animate-pulse">Thinking...</div>}
         <div ref={chatEndRef} />
       </div>
+
+      {/* --- INPUT AREA --- */}
       <div className="p-4 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-md">
 
-        {/* NEW: Visual Feedback for TTS */}
+        {/* Visual Feedback for Neural TTS */}
         {isSpeaking && (
             <div className="text-center text-xs text-violet-400 animate-pulse mb-2 tracking-widest uppercase font-bold">
                 Lumira is Speaking...
