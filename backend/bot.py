@@ -7,15 +7,16 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from langchain_ollama.llms import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
 
+# CHANGE: We import 'vectorstore' so we can build custom filters dynamically
 try:
-    from Utils.pdfvectorising import retriever
+    from Utils.pdfvectorising import vectorstore
 except ImportError:
-    from pdfvectorising import retriever
+    from pdfvectorising import vectorstore
 
+# Use the Chat Model
 model = OllamaLLM(model="llama3.2")
 
 # --- PROMPT TEMPLATE ---
-# strict instructions to behave like a Voice Assistant
 template = """
 System: You are Lumira, an AI voice assistant for an exhibition. 
 Context: {context}
@@ -26,15 +27,15 @@ Instructions:
 2. **SHORT & SPOKEN:** Use simple, spoken English. Maximum 3-4 sentences. bullet points (if needed).
 3. **CONTEXT ONLY:** Use the provided Context for factual answers.
 4. **FALLBACK:** If the Context is empty or irrelevant to the question, say "I don't have that information, anything you would like to know on the topic at hand? etc."
-5. **OUTOFCONTEXT:** Don't answer questions that are "IRRELEVANT" or "OUTOFCONTEXT" , questions which are not related to the project , just reply - "Please Ask A Relevant Question About This Project" . This must also include random questions
+5. **OUTOFCONTEXT:** Don't answer questions that are "IRRELEVANT" or "OUTOFCONTEXT", questions which are not related to the project, just reply - "Please Ask A Relevant Question About This Project". This must also include random questions
 6. **TECHQUESTIONS:** Don't answer random tech questions that are asked, answer only product/project based questions based on the data provided
+7. **NO GREETINGS:** Do NOT say "Hello", "Hi", "I am Lumira", or "As an AI" after the initial greetings. Start answering the question immediately.
 """
 
 prompt = ChatPromptTemplate.from_template(template)
 chain = prompt | model
 
 # --- CONVERSATIONAL FILTER LIST ---
-# If user says these, we skip the AI processing to save time and avoid errors.
 SMALL_TALK = {
     # Greetings
     "hi": "Hi there! Ask me about any product.",
@@ -71,38 +72,73 @@ SMALL_TALK = {
 
 
 # --- MAIN FUNCTION ---
-def ask_lumira(question):
-    print(f"🤖 Processing: {question}")
+# NEW: Added 'filter_filename' as the second argument
+def ask_lumira(question, filter_filename=None):
+    print(f"🤖 Processing: {question} | Filter: {filter_filename}")
 
-    # 1. Clean the input
     clean_q = question.strip().lower().replace('.', '').replace('!', '').replace('?', '')
 
-    # 2. Check for Small Talk (The Fix for "Okay")
+    # 1. Check Small Talk
     if clean_q in SMALL_TALK:
-        # Yield the pre-set response immediately
         yield SMALL_TALK[clean_q]
         return
 
-    # 3. Handle Noise (Short, meaningless inputs like "do")
-    if len(clean_q) < 3 and clean_q not in ["ai", "ui", "ux"]:
-        yield "I didn't quite catch that. Could you repeat?"
+    # 2. Check for Noise (very short inputs)
+    if len(clean_q) < 2 and clean_q not in ["ai", "ui", "ux"]:
+        yield "I didn't quite catch that."
         return
 
-    # 4. Normal RAG Process (For real questions)
     try:
-        context = retriever.invoke(question)
-        for chunk in chain.stream({"context": context, "question": question}):
+        # 3. CONFIGURE RETRIEVER (With Optional Locking)
+        search_kwargs = {"k": 5}
+
+        if filter_filename:
+            # Reconstruct the full path because ChromaDB stores the full path in 'source'
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            full_path = os.path.join(base_dir, "Dataset", filter_filename)
+
+            # STRICT FILTER: Only look at vectors from this specific file
+            search_kwargs["filter"] = {"source": full_path}
+            print(f"🔒 Locking search to: {filter_filename}")
+
+        # Create a dynamic retriever for this specific request
+        retriever = vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs=search_kwargs
+        )
+
+        # 4. RETRIEVE CONTEXT
+        context_docs = retriever.invoke(question)
+
+        # --- DEBUG PRINT: SEE WHAT THE BOT FOUND ---
+        print(f"🔎 Found {len(context_docs)} relevant chunks.")
+        if context_docs:
+            print(f"📄 Top Context: {context_docs[0].page_content[:200]}...")
+        else:
+            print("⚠️ NO CONTEXT FOUND! Bot will likely hallucinate.")
+        # -------------------------------------------
+
+        # 5. Convert docs to string
+        formatted_context = "\n\n".join([doc.page_content for doc in context_docs])
+
+        # 6. GENERATE ANSWER
+        for chunk in chain.stream({"context": formatted_context, "question": question}):
             yield chunk
+
     except Exception as e:
+        print(f"❌ Error in ask_lumira: {e}")
         yield f"System Error: {e}"
 
 
-# --- CLI LOOP ---
+# --- CLI LOOP (For testing without Frontend) ---
 if __name__ == "__main__":
-    print("--- CLI Mode ---")
+    print("--- CLI Mode (Type 'q' to quit) ---")
     while True:
-        qn = input("\nAsk (q to quit): ")
-        if qn == "q": break
-        for chunk in ask_lumira(qn):
+        qn = input("\nAsk: ")
+        if qn.lower() == "q": break
+
+        print("Lumira: ", end="")
+        # Pass None as the filter for CLI testing
+        for chunk in ask_lumira(qn, None):
             print(chunk, end="", flush=True)
         print()

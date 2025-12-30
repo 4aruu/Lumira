@@ -8,9 +8,9 @@ export default {
     extend: {
       animation: {
         'scan': 'scan 2s linear infinite',
-        'blob': 'blob 10s infinite', // Slower breathing
-        'shimmer': 'shimmer 2s linear infinite',
-        'shine': 'shine 8s ease-in-out infinite', // Slower, smoother shine
+        'blob': 'blob 7s infinite', // CHANGED: Speed up from 10s to 7s
+        'shimmer': 'shimmer 3s linear infinite',
+        'shine': 'shine 7s ease-in-out infinite',
       },
       keyframes: {
         scan: {
@@ -29,7 +29,6 @@ export default {
           from: { "backgroundPosition": "0 0" },
           to: { "backgroundPosition": "-200% 0" }
         },
-        // Updated Shine Keyframe
         shine: {
           '0%, 100%': { backgroundPosition: '-100% center' },
           '50%': { backgroundPosition: '200% center' },

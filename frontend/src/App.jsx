@@ -1,29 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
+import QRCode from "react-qr-code";
 import {
   Mic, Send, QrCode, UploadCloud, FileText, BarChart3,
   Users, Settings, ChevronLeft, X, MessageSquare,
-  Sparkles, Zap, Shield, MoreVertical, LogOut, User, Mail, Lock
+  Sparkles, Zap, Shield, MoreVertical, LogOut, User, Mail, Lock,
+  Trash2, Eye
 } from 'lucide-react';
 
 const OTP_API_BASE_URL = "https://jbf1xtgo07.execute-api.us-east-1.amazonaws.com/dev";
 
 // --- Components ---
-
-const Waveform = ({ isActive }) => (
-  <div className={`flex items-center gap-1 h-8 ${isActive ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}>
-    {[...Array(5)].map((_, i) => (
-      <div
-        key={i}
-        className={`w-1 bg-violet-400 rounded-full animate-pulse`}
-        style={{
-          height: isActive ? `${Math.random() * 100}%` : '4px',
-          animationDuration: `${0.5 + Math.random() * 0.5}s`
-        }}
-      />
-    ))}
-  </div>
-);
-
 const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled }) => {
   const baseStyle = "flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium transition-all duration-200 active:scale-95 shadow-lg relative overflow-hidden group disabled:opacity-50 disabled:cursor-not-allowed";
   const variants = {
@@ -50,36 +36,138 @@ export default function App() {
     { id: 1, type: 'ai', text: "Hello! I'm Lumira. Ask me anything about the products on display!" }
   ]);
   const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
+  const [activeFile, setActiveFile] = useState(null);
 
-  // --- Auth State ---
+  // --- NEW: Audio Queue Refs ---
+  const audioQueue = useRef([]);         // Stores the list of audio blobs waiting to play
+  const isPlayingAudio = useRef(false);  // Flag to check if something is currently playing
+
+  // --- Auth & Exhibitor State ---
   const [authStep, setAuthStep] = useState('email');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [sessionId, setSessionId] = useState('');
-
-  // --- Exhibitor State ---
   const [files, setFiles] = useState([]);
-  const fileInputRef = useRef(null); // Reference for hidden file input
+  const fileInputRef = useRef(null);
+  const [showQrFor, setShowQrFor] = useState(null);
 
-  // --- VOICE LOGIC ---
-  const speakText = (text) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find(v => v.name.includes('Google US English')) || voices[0];
-      utterance.voice = preferredVoice;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      window.speechSynthesis.speak(utterance);
+  // --- Auto-Fetch Files & URL Params ---
+  useEffect(() => {
+    if (view === 'exhibitor-dash') fetchUploadedFiles();
+  }, [view]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const projectParam = params.get('project');
+    if (projectParam) {
+      setActiveFile(projectParam);
+      setMessages([{
+          id: 1,
+          type: 'ai',
+          text: `Welcome! I am locked onto the "${projectParam}" project. Ask me anything.`
+      }]);
+      setView('chat');
+    }
+  }, []);
+
+  const fetchUploadedFiles = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/files');
+      if (response.ok) {
+        const data = await response.json();
+        setFiles(data.files);
+      }
+    } catch (error) {
+      console.error("Could not fetch file list:", error);
     }
   };
 
-  // --- API CONNECTION (Chatbot) ---
+  const handleDeleteFile = async (filename) => {
+    if (!confirm(`Are you sure you want to delete "${filename}"?`)) return;
+    setFiles(prev => prev.filter(f => f.name !== filename));
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/files/${filename}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error("Delete failed");
+    } catch (error) {
+      console.error(error);
+      alert("Failed to delete file. Check backend connection.");
+      fetchUploadedFiles();
+    }
+  };
+
+  // --- NEW: Audio Queue Processor ---
+  const processAudioQueue = async () => {
+    // 1. If already playing, do nothing (wait for current track to finish)
+    if (isPlayingAudio.current) return;
+
+    // 2. If queue is empty, we are done
+    if (audioQueue.current.length === 0) {
+        setIsSpeaking(false);
+        return;
+    }
+
+    // 3. Lock the player
+    isPlayingAudio.current = true;
+    setIsSpeaking(true);
+
+    // 4. Get the next blob from the queue
+    const nextAudioUrl = audioQueue.current.shift();
+    const audio = new Audio(nextAudioUrl);
+
+    // 5. Play it
+    try {
+        await audio.play();
+    } catch (e) {
+        console.error("Playback failed", e);
+        isPlayingAudio.current = false;
+        processAudioQueue(); // Try next one
+        return;
+    }
+
+    // 6. When done, unlock and recurse
+    audio.onended = () => {
+        isPlayingAudio.current = false;
+        URL.revokeObjectURL(nextAudioUrl); // Cleanup memory
+        processAudioQueue(); // Trigger the next clip immediately
+    };
+  };
+
+  // --- NEW: Queued Voice Output ---
+  const speakText = async (text) => {
+    if (!text || text.trim().length === 0) return;
+
+    // Instead of playing immediately, we fetch and push to queue
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/speak?text=${encodeURIComponent(text)}`);
+      if (!response.ok) throw new Error("Voice generation failed");
+
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+
+      // Add to queue
+      audioQueue.current.push(audioUrl);
+
+      // Try to start the processor (if it's not already running)
+      processAudioQueue();
+
+    } catch (error) {
+      console.error("Audio Fetch Error:", error);
+      // Fallback
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  };
+
+  // --- API CONNECTION ---
   const handleSendMessage = async () => {
     if (!textInput.trim()) return;
 
@@ -96,7 +184,10 @@ export default function App() {
       const response = await fetch('http://127.0.0.1:8000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageToSend }),
+        body: JSON.stringify({
+            message: messageToSend,
+            active_file: activeFile
+        }),
       });
 
       if (!response.body) throw new Error("ReadableStream not supported.");
@@ -142,7 +233,17 @@ export default function App() {
 
   const handleScan = () => {
     setView('scanner');
-    setTimeout(() => setView('chat'), 2500);
+    setTimeout(() => {
+        const scannedFilename = files.length > 0 ? files[0].name : "InfoBotDataset.pdf";
+        setActiveFile(scannedFilename);
+        setMessages([{
+            id: 1,
+            type: 'ai',
+            text: `Connected to ${scannedFilename}. I am now answering questions specifically about this project.`
+        }]);
+        speakText(`Connected to ${scannedFilename}`);
+        setView('chat');
+    }, 2500);
   };
 
   const toggleListening = () => {
@@ -151,24 +252,18 @@ export default function App() {
       alert("Voice input requires Chrome/Edge/Safari.");
       return;
     }
-
     if (isListening) {
       setIsListening(false);
       return;
     }
-
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-
     recognition.onstart = () => setIsListening(true);
-
     recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setTextInput(transcript);
+      setTextInput(event.results[0][0].transcript);
     };
-
     recognition.onend = () => setIsListening(false);
     recognition.start();
   };
@@ -177,14 +272,11 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // --- Exhibitor Logic (File Upload) ---
-
-  // 1. Trigger the hidden input
+  // --- Exhibitor Logic ---
   const triggerFilePicker = () => {
     fileInputRef.current.click();
   };
 
-  // 2. Handle the selected file
   const handleFileSelect = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -197,11 +289,10 @@ export default function App() {
     const formData = new FormData();
     formData.append("file", file);
 
-    // Optimistic UI update
     const newFileEntry = {
       name: file.name,
       size: `${(file.size / 1024).toFixed(1)} KB`,
-      date: new Date().toLocaleDateString()
+      status: "Uploading..."
     };
     setFiles(prev => [newFileEntry, ...prev]);
 
@@ -212,18 +303,17 @@ export default function App() {
       });
 
       if (!response.ok) throw new Error("Upload failed");
-
-      alert(`Success! Lumira is learning from "${file.name}". This may take a moment.`);
+      fetchUploadedFiles();
+      alert(`Success! Lumira is learning from "${file.name}".`);
 
     } catch (error) {
       console.error(error);
       alert("Upload failed. Ensure backend is running.");
-      setFiles(prev => prev.filter(f => f !== newFileEntry));
+      setFiles(prev => prev.filter(f => f.name !== file.name));
     }
   };
 
-
-  // --- Auth Logic (AWS OTP) ---
+  // --- Auth Logic ---
   const handleSendOtp = async () => {
     if (!email) return alert("Please enter an email");
     try {
@@ -299,59 +389,36 @@ export default function App() {
     <div className="flex flex-col items-center justify-center h-full p-6 relative z-10 animate-in fade-in">
       <div className="w-full max-w-sm bg-slate-900/60 backdrop-blur-xl p-8 rounded-2xl border border-slate-700/50 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500 to-transparent opacity-50" />
-
         <div className="flex justify-center mb-6">
           <div className="w-12 h-12 bg-violet-600 rounded-lg flex items-center justify-center shadow-lg shadow-violet-500/20">
             <Shield className="text-white" />
           </div>
         </div>
-
         <h2 className="text-2xl font-bold text-white text-center mb-2">Exhibitor Login</h2>
         <p className="text-slate-400 text-center text-sm mb-8">
           {authStep === 'email' ? 'Enter your registered email to receive an OTP.' : `Enter the code sent to ${email}`}
         </p>
-
         <div className="space-y-4">
           {authStep === 'email' ? (
             <div>
               <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">Email Address</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com"
-                  className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600"
-                />
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600" />
               </div>
-              <Button onClick={handleSendOtp} disabled={isSendingOtp} className="w-full mt-6">
-                {isSendingOtp ? 'Sending...' : 'Send Access Code'}
-              </Button>
+              <Button onClick={handleSendOtp} disabled={isSendingOtp} className="w-full mt-6">{isSendingOtp ? 'Sending...' : 'Send Access Code'}</Button>
             </div>
           ) : (
             <div className="animate-in slide-in-from-right">
               <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">One-Time Password</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
-                <input
-                  type="text"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  placeholder="123456"
-                  maxLength={6}
-                  className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white text-center tracking-[0.5em] font-mono text-lg focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600 placeholder:tracking-normal"
-                />
+                <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="123456" maxLength={6} className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white text-center tracking-[0.5em] font-mono text-lg focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600 placeholder:tracking-normal" />
               </div>
-              <Button onClick={handleVerifyOtp} disabled={isSendingOtp} className="w-full mt-6">
-                {isSendingOtp ? 'Verifying...' : 'Verify & Login'}
-              </Button>
-              <button onClick={() => setAuthStep('email')} className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400 transition-colors">
-                Change Email
-              </button>
+              <Button onClick={handleVerifyOtp} disabled={isSendingOtp} className="w-full mt-6">{isSendingOtp ? 'Verifying...' : 'Verify & Login'}</Button>
+              <button onClick={() => setAuthStep('email')} className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400 transition-colors">Change Email</button>
             </div>
           )}
-
           <Button variant="ghost" onClick={() => setView('landing')} className="w-full text-sm mt-2">Back to Home</Button>
         </div>
       </div>
@@ -378,28 +445,12 @@ export default function App() {
         <span className="text-white font-medium">Lumira Assistant</span>
         <MoreVertical className="text-slate-400" />
       </div>
-
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-4 backdrop-blur-sm ${
-              msg.type === 'user'
-                ? 'bg-violet-600/90 text-white shadow-lg shadow-violet-500/10 border border-violet-500/20'
-                : 'bg-slate-800/80 text-slate-200 border border-slate-700/50'
-            }`}>
-
-              {msg.type === 'user' && (
-                <div className="flex items-center justify-end gap-2 mb-2 text-violet-200 text-xs font-bold uppercase">
-                  YOU <User size={12}/>
-                </div>
-              )}
-
-              {msg.type === 'ai' && (
-                <div className="flex items-center gap-2 mb-2 text-violet-400 text-xs font-bold uppercase">
-                  <Sparkles size={12}/> Lumira AI
-                </div>
-              )}
-
+            <div className={`max-w-[85%] rounded-2xl p-4 backdrop-blur-sm ${msg.type === 'user' ? 'bg-violet-600/90 text-white shadow-lg shadow-violet-500/10 border border-violet-500/20' : 'bg-slate-800/80 text-slate-200 border border-slate-700/50'}`}>
+              {msg.type === 'user' && <div className="flex items-center justify-end gap-2 mb-2 text-violet-200 text-xs font-bold uppercase">YOU <User size={12}/></div>}
+              {msg.type === 'ai' && <div className="flex items-center gap-2 mb-2 text-violet-400 text-xs font-bold uppercase"><Sparkles size={12}/> Lumira AI</div>}
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p>
             </div>
           </div>
@@ -407,22 +458,21 @@ export default function App() {
         {isLoading && !messages[messages.length - 1]?.text && <div className="text-slate-500 text-xs text-center animate-pulse">Thinking...</div>}
         <div ref={chatEndRef} />
       </div>
-
       <div className="p-4 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-md">
+
+        {/* NEW: Visual Feedback for TTS */}
+        {isSpeaking && (
+            <div className="text-center text-xs text-violet-400 animate-pulse mb-2 tracking-widest uppercase font-bold">
+                Lumira is Speaking...
+            </div>
+        )}
+
         <div className="flex items-center gap-3">
           <div className="flex-1 relative">
-            <input
-              type="text" value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Ask about this product..."
-              className="w-full bg-slate-800/80 text-white rounded-full pl-4 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 border border-slate-700/50 placeholder:text-slate-500"
-              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-            />
+            <input type="text" value={textInput} onChange={(e) => setTextInput(e.target.value)} placeholder="Ask about this product..." className="w-full bg-slate-800/80 text-white rounded-full pl-4 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 border border-slate-700/50 placeholder:text-slate-500" onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} />
             <button onClick={handleSendMessage} className="absolute right-2 top-1/2 -translate-y-1/2 text-violet-400 hover:text-white"><Send size={16} /></button>
           </div>
-          <button onClick={toggleListening} className={`p-3 rounded-full border transition-all duration-300 ${isListening ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-slate-800/80 border-slate-700/50 text-violet-400'}`}>
-            <Mic size={24} />
-          </button>
+          <button onClick={toggleListening} className={`p-3 rounded-full border transition-all duration-300 ${isListening ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-slate-800/80 border-slate-700/50 text-violet-400'}`}><Mic size={24} /></button>
         </div>
       </div>
     </div>
@@ -432,37 +482,18 @@ export default function App() {
     <div className="flex h-full z-10 relative">
       <div className="w-64 border-r border-slate-800/50 bg-slate-900/60 backdrop-blur-md hidden md:flex flex-col p-6">
         <div className="flex items-center gap-3 mb-8">
-          <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
-            <Sparkles className="text-white" size={16}/>
-          </div>
+          <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center"><Sparkles className="text-white" size={16}/></div>
           <span className="text-xl font-bold text-white">LUMIRA</span>
         </div>
         <div className="space-y-2 flex-1">
-          <div className="flex items-center gap-3 px-4 py-3 bg-violet-600/10 text-violet-400 rounded-xl border border-violet-600/20">
-            <BarChart3 size={20}/><span className="font-medium">Dashboard</span>
-          </div>
+          <div className="flex items-center gap-3 px-4 py-3 bg-violet-600/10 text-violet-400 rounded-xl border border-violet-600/20"><BarChart3 size={20}/><span className="font-medium">Dashboard</span></div>
         </div>
-        <button onClick={() => setView('landing')} className="flex items-center gap-3 text-slate-400 hover:text-white">
-          <LogOut size={20}/> Logout
-        </button>
+        <button onClick={() => setView('landing')} className="flex items-center gap-3 text-slate-400 hover:text-white"><LogOut size={20}/> Logout</button>
       </div>
       <div className="flex-1 p-8 overflow-y-auto">
         <h2 className="text-2xl font-bold text-white mb-6">Knowledge Base</h2>
-
-        {/* Hidden File Input */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileSelect}
-          className="hidden"
-          accept="application/pdf"
-        />
-
-        {/* Drop Zone */}
-        <div
-          onClick={triggerFilePicker}
-          className="border-2 border-dashed border-slate-700/50 rounded-xl p-12 text-center bg-slate-900/40 cursor-pointer hover:border-violet-500/50 transition-colors backdrop-blur-sm group"
-        >
+        <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="application/pdf" />
+        <div onClick={triggerFilePicker} className="border-2 border-dashed border-slate-700/50 rounded-xl p-12 text-center bg-slate-900/40 cursor-pointer hover:border-violet-500/50 transition-colors backdrop-blur-sm group">
           <UploadCloud size={48} className="mx-auto text-violet-400 mb-4 group-hover:scale-110 transition-transform"/>
           <p className="text-white font-medium">Click to upload Datasheet (PDF)</p>
           <p className="text-slate-500 text-sm mt-1">Files will be indexed automatically.</p>
@@ -470,15 +501,43 @@ export default function App() {
 
         <div className="mt-8 space-y-3">
           {files.map((f, i) => (
-            <div key={i} className="flex items-center justify-between p-4 bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50">
+            <div key={i} className="flex item-center justify-between p-4 bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 hover:border-violet-500/30 transition-colors">
               <div className="flex items-center gap-3">
-                <FileText className="text-slate-400"/>
-                <span className="text-white text-sm">{f.name}</span>
+                <FileText className="text-violet-400" size={20}/>
+                <div>
+                  <p className="text-white text-sm font-medium">{f.name}</p>
+                  <p className="text-slate-500 text-xs">{f.size || 'Loading...'}</p>
+                </div>
               </div>
-              <span className="text-green-400 text-xs font-bold">● Active</span>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold px-2 py-1 rounded-full ${f.status === 'Uploading...' ? 'text-yellow-400 bg-yellow-400/10' : 'text-green-400 bg-green-400/10'}`}>● {f.status || "Active"}</span>
+                {/* NEW: QR Button */}
+                <button onClick={() => setShowQrFor(f.name)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="View QR">
+                    <QrCode size={18} />
+                </button>
+                <button onClick={() => handleDeleteFile(f.name)} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors" title="Delete Dataset">
+                  <Trash2 size={18} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
+
+        {/* NEW: QR Code Modal */}
+        {showQrFor && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white p-6 rounded-2xl max-w-sm w-full text-center relative">
+                    <button onClick={() => setShowQrFor(null)} className="absolute top-4 right-4 text-slate-400 hover:text-black"><X/></button>
+                    <h3 className="text-xl font-bold text-slate-900 mb-2">Project QR Code</h3>
+                    <p className="text-slate-500 text-sm mb-6 break-all">{showQrFor}</p>
+                    <div className="flex justify-center p-4 bg-slate-100 rounded-xl mb-4">
+                        {/* Generates a URL-based QR */}
+                        <QRCode value={`http://localhost:5173/?project=${showQrFor}`} size={200} />
+                    </div>
+                    <p className="text-xs text-slate-400">Scan this to chat specifically about this dataset.</p>
+                </div>
+            </div>
+        )}
       </div>
     </div>
   );
@@ -490,7 +549,6 @@ export default function App() {
         <div className="absolute -bottom-[10%] -right-[10%] w-[50%] h-[50%] rounded-full bg-indigo-600/20 blur-[120px] animate-blob animation-delay-2000" />
         <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] rounded-full bg-fuchsia-600/5 blur-[100px] animate-blob animation-delay-4000" />
       </div>
-
       {view === 'landing' && renderLanding()}
       {view === 'scanner' && renderScanner()}
       {view === 'chat' && renderChat()}
