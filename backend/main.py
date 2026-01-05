@@ -66,7 +66,7 @@ async def speak(text: str):
 
     # CHANGE: Added rate="+20%" for faster, more energetic speech
     async def audio_stream():
-        communicate = edge_tts.Communicate(text, VOICE, rate="+20%")
+        communicate = edge_tts.Communicate(text, VOICE, rate="+30%")
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 yield chunk["data"]

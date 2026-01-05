@@ -39,12 +39,19 @@ export default function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
   const chatEndRef = useRef(null);
   const [activeFile, setActiveFile] = useState(null);
 
-  // --- NEW: Audio Queue Refs ---
-  const audioQueue = useRef([]);         // Stores the list of audio blobs waiting to play
-  const isPlayingAudio = useRef(false);  // Flag to check if something is currently playing
+  // --- Audio Queue Refs ---
+  const audioQueue = useRef([]);
+  const isPlayingAudio = useRef(false);
+
+  // --- Silence Detection & Locking Refs ---
+  const silenceTimer = useRef(null);
+  const recognitionRef = useRef(null);
+  const processingRef = useRef(false); // LOCK: Prevents double sends
+  const lastMsgRef = useRef({ text: '', time: 0 }); // DEDUPE: Tracks last sent message
 
   // --- Auth & Exhibitor State ---
   const [authStep, setAuthStep] = useState('email');
@@ -58,9 +65,8 @@ export default function App() {
 
   // --- Auto-Fetch Files & URL Params ---
   useEffect(() => {
-    // ALWAYS fetch files when the app loads, so the Chat Dropdown is ready
     fetchUploadedFiles();
-  }, []); // Empty dependency array = Run once on startup
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -103,48 +109,41 @@ export default function App() {
     }
   };
 
-  // --- NEW: Audio Queue Processor ---
+  // --- Audio Queue Processor ---
   const processAudioQueue = async () => {
-    // 1. If already playing, do nothing (wait for current track to finish)
     if (isPlayingAudio.current) return;
 
-    // 2. If queue is empty, we are done
     if (audioQueue.current.length === 0) {
         setIsSpeaking(false);
         return;
     }
 
-    // 3. Lock the player
     isPlayingAudio.current = true;
     setIsSpeaking(true);
 
-    // 4. Get the next blob from the queue
     const nextAudioUrl = audioQueue.current.shift();
     const audio = new Audio(nextAudioUrl);
 
-    // 5. Play it
     try {
         await audio.play();
     } catch (e) {
         console.error("Playback failed", e);
         isPlayingAudio.current = false;
-        processAudioQueue(); // Try next one
+        processAudioQueue();
         return;
     }
 
-    // 6. When done, unlock and recurse
     audio.onended = () => {
         isPlayingAudio.current = false;
-        URL.revokeObjectURL(nextAudioUrl); // Cleanup memory
-        processAudioQueue(); // Trigger the next clip immediately
+        URL.revokeObjectURL(nextAudioUrl);
+        processAudioQueue();
     };
   };
 
-  // --- NEW: Queued Voice Output ---
+  // --- Queued Voice Output ---
   const speakText = async (text) => {
     if (!text || text.trim().length === 0) return;
 
-    // Instead of playing immediately, we fetch and push to queue
     try {
       const response = await fetch(`http://127.0.0.1:8000/api/speak?text=${encodeURIComponent(text)}`);
       if (!response.ok) throw new Error("Voice generation failed");
@@ -152,15 +151,11 @@ export default function App() {
       const blob = await response.blob();
       const audioUrl = URL.createObjectURL(blob);
 
-      // Add to queue
       audioQueue.current.push(audioUrl);
-
-      // Try to start the processor (if it's not already running)
       processAudioQueue();
 
     } catch (error) {
       console.error("Audio Fetch Error:", error);
-      // Fallback
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(text);
         window.speechSynthesis.speak(utterance);
@@ -168,14 +163,37 @@ export default function App() {
     }
   };
 
-  // --- API CONNECTION ---
-  const handleSendMessage = async () => {
-    if (!textInput.trim()) return;
+  // --- API CONNECTION (With Duplicate Prevention) ---
+  const sendMessageToBackend = async (textToSend) => {
+    if (!textToSend.trim()) return;
 
-    const userMsg = { id: Date.now(), type: 'user', text: textInput };
+    // --- DEDUPLICATION CHECK ---
+    const now = Date.now();
+    // If same text sent within 3 seconds, ignore it (Microphone glitch)
+    if (textToSend === lastMsgRef.current.text && (now - lastMsgRef.current.time) < 3000) {
+        console.warn("Duplicate message blocked:", textToSend);
+        return;
+    }
+    // Update tracker
+    lastMsgRef.current = { text: textToSend, time: now };
+    // ---------------------------
+
+    const userMsg = { id: Date.now(), type: 'user', text: textToSend };
     setMessages(prev => [...prev, userMsg]);
-    const messageToSend = textInput;
-    setTextInput('');
+
+    // Context Booster
+    let messageToBackend = textToSend;
+    const vagueKeywords = ["more", "continue", "next", "details", "elaborate"];
+    const isVague = vagueKeywords.some(word => textToSend.toLowerCase().includes(word)) || textToSend.length < 15;
+
+    if (isVague) {
+        const lastUserMsg = [...messages].reverse().find(m => m.type === 'user');
+        if (lastUserMsg) {
+            console.log("🚀 Enhancing Query with Memory:", lastUserMsg.text);
+            messageToBackend = `${lastUserMsg.text}. ${textToSend}`;
+        }
+    }
+
     setIsLoading(true);
 
     try {
@@ -186,7 +204,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            message: messageToSend,
+            message: messageToBackend,
             active_file: activeFile
         }),
       });
@@ -232,6 +250,85 @@ export default function App() {
     }
   };
 
+  const handleSendMessage = () => {
+      const msg = textInput;
+      setTextInput('');
+      sendMessageToBackend(msg);
+  };
+
+  // --- ROBUST VOICE INPUT (Fixed Double Sends) ---
+  const toggleListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Voice input is not supported. Use Chrome/Safari.");
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    processingRef.current = false; // Reset lock
+
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+        setIsListening(true);
+        setTextInput('');
+    };
+
+    recognition.onresult = (event) => {
+      // 1. CHECK LOCK: If we are already sending, ignore this event
+      if (processingRef.current) return;
+
+      const currentTranscript = Array.from(event.results)
+        .map(result => result[0].transcript)
+        .join('');
+
+      setTextInput(currentTranscript);
+
+      // 2. RESET SILENCE TIMER
+      if (silenceTimer.current) clearTimeout(silenceTimer.current);
+
+      // 3. START NEW TIMER (2.5 seconds silence)
+      silenceTimer.current = setTimeout(() => {
+          processingRef.current = true; // LOCK THE DOOR
+
+          recognition.stop();
+          setIsListening(false);
+
+          if (currentTranscript.trim().length > 0) {
+              sendMessageToBackend(currentTranscript);
+              // Clear UI with a slight delay to prevent ghosting
+              setTimeout(() => setTextInput(''), 100);
+          }
+      }, 2500);
+    };
+
+    recognition.onerror = (event) => {
+      // Ignore 'no-speech' errors which are common
+      if (event.error !== 'no-speech') {
+        console.error("Speech Error:", event.error);
+      }
+      setIsListening(false);
+      if (silenceTimer.current) clearTimeout(silenceTimer.current);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      // We do NOT clear the timer here, to allow the silence timer to complete its job
+    };
+
+    recognition.start();
+  };
+
   const handleScan = () => {
     setView('scanner');
     setTimeout(() => {
@@ -245,28 +342,6 @@ export default function App() {
         speakText(`Connected to ${scannedFilename}`);
         setView('chat');
     }, 2500);
-  };
-
-  const toggleListening = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Voice input requires Chrome/Edge/Safari.");
-      return;
-    }
-    if (isListening) {
-      setIsListening(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onstart = () => setIsListening(true);
-    recognition.onresult = (event) => {
-      setTextInput(event.results[0][0].transcript);
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.start();
   };
 
   useEffect(() => {
@@ -449,8 +524,6 @@ export default function App() {
 
             <div className="flex flex-col">
                 <span className="text-white font-medium text-sm">Lumira Assistant</span>
-
-                {/* DEBUG DROPDOWN: Allows switching context without scanning */}
                 <select
                     className="bg-slate-800 text-xs text-violet-400 border border-slate-700 rounded px-2 py-1 mt-1 outline-none focus:border-violet-500 cursor-pointer"
                     value={activeFile || ""}
@@ -491,7 +564,7 @@ export default function App() {
       </div>
 
       {/* --- INPUT AREA --- */}
-      <div className="p-4 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-md">
+      <div className="p-4 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-md relative">
 
         {/* Visual Feedback for Neural TTS */}
         {isSpeaking && (
@@ -508,6 +581,35 @@ export default function App() {
           <button onClick={toggleListening} className={`p-3 rounded-full border transition-all duration-300 ${isListening ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-slate-800/80 border-slate-700/50 text-violet-400'}`}><Mic size={24} /></button>
         </div>
       </div>
+
+      {/* --- PREMIUM LISTENING OVERLAY (Glassmorphism) --- */}
+      {isListening && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-xl transition-all duration-500 animate-in fade-in">
+              <div className="relative">
+                  {/* Outer Ripple */}
+                  <div className="absolute inset-0 bg-violet-500 rounded-full blur-xl opacity-30 animate-ping"></div>
+                  {/* Core Circle */}
+                  <div className="w-32 h-32 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-full flex items-center justify-center shadow-2xl shadow-violet-500/40 animate-pulse">
+                      <Mic size={48} className="text-white" />
+                  </div>
+              </div>
+
+              <h3 className="mt-8 text-2xl font-bold text-white tracking-tight">Listening...</h3>
+
+              {/* Live Transcript Display */}
+              <p className="mt-4 text-violet-200 text-center max-w-xs text-lg font-medium h-12">
+                  {textInput || "Speak now..."}
+              </p>
+
+              <button
+                  onClick={toggleListening}
+                  className="mt-8 px-6 py-2 bg-white/10 hover:bg-white/20 text-sm text-white rounded-full backdrop-blur border border-white/10 transition-colors"
+              >
+                  Tap to Cancel
+              </button>
+          </div>
+      )}
+
     </div>
   );
 
