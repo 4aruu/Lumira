@@ -46,12 +46,14 @@ export default function App() {
   // --- Audio Queue Refs ---
   const audioQueue = useRef([]);
   const isPlayingAudio = useRef(false);
+  const currentAudioRef = useRef(null);
 
   // --- Silence Detection & Locking Refs ---
   const silenceTimer = useRef(null);
   const recognitionRef = useRef(null);
-  const processingRef = useRef(false); // LOCK: Prevents double sends
-  const lastMsgRef = useRef({ text: '', time: 0 }); // DEDUPE: Tracks last sent message
+  const processingRef = useRef(false);
+  const lastMsgRef = useRef({ text: '', time: 0 });
+  const finalTranscriptRef = useRef('');
 
   // --- Auth & Exhibitor State ---
   const [authStep, setAuthStep] = useState('email');
@@ -63,7 +65,7 @@ export default function App() {
   const fileInputRef = useRef(null);
   const [showQrFor, setShowQrFor] = useState(null);
 
-  // --- Auto-Fetch Files & URL Params ---
+  // --- Auto-Fetch Files ---
   useEffect(() => {
     fetchUploadedFiles();
   }, []);
@@ -78,6 +80,7 @@ export default function App() {
           type: 'ai',
           text: `Welcome! I am locked onto the "${projectParam}" project. Ask me anything.`
       }]);
+      speakText(`Connected to ${projectParam}`);
       setView('chat');
     }
   }, []);
@@ -109,7 +112,7 @@ export default function App() {
     }
   };
 
-  // --- Audio Queue Processor ---
+  // --- OPTIMIZED AUDIO PROCESSOR (Fixes Overlap) ---
   const processAudioQueue = async () => {
     if (isPlayingAudio.current) return;
 
@@ -123,6 +126,18 @@ export default function App() {
 
     const nextAudioUrl = audioQueue.current.shift();
     const audio = new Audio(nextAudioUrl);
+    currentAudioRef.current = audio;
+
+    // --- CRITICAL FIX: AGGRESSIVE SILENCING ---
+    // 1. Cancel the Browser TTS (Filler Voice) immediately
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+    }
+    // 2. Pause any lingering AI audio
+    if (currentAudioRef.current && !currentAudioRef.current.paused) {
+        currentAudioRef.current.pause();
+    }
+    // ------------------------------------------
 
     try {
         await audio.play();
@@ -135,6 +150,7 @@ export default function App() {
 
     audio.onended = () => {
         isPlayingAudio.current = false;
+        currentAudioRef.current = null;
         URL.revokeObjectURL(nextAudioUrl);
         processAudioQueue();
     };
@@ -156,6 +172,7 @@ export default function App() {
 
     } catch (error) {
       console.error("Audio Fetch Error:", error);
+      // Fallback only if backend fails
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(text);
         window.speechSynthesis.speak(utterance);
@@ -163,25 +180,20 @@ export default function App() {
     }
   };
 
-  // --- API CONNECTION (With Duplicate Prevention) ---
+  // --- API CONNECTION (With Optimized Timing) ---
   const sendMessageToBackend = async (textToSend) => {
     if (!textToSend.trim()) return;
 
-    // --- DEDUPLICATION CHECK ---
     const now = Date.now();
-    // If same text sent within 3 seconds, ignore it (Microphone glitch)
     if (textToSend === lastMsgRef.current.text && (now - lastMsgRef.current.time) < 3000) {
         console.warn("Duplicate message blocked:", textToSend);
         return;
     }
-    // Update tracker
     lastMsgRef.current = { text: textToSend, time: now };
-    // ---------------------------
 
     const userMsg = { id: Date.now(), type: 'user', text: textToSend };
     setMessages(prev => [...prev, userMsg]);
 
-    // Context Booster
     let messageToBackend = textToSend;
     const vagueKeywords = ["more", "continue", "next", "details", "elaborate"];
     const isVague = vagueKeywords.some(word => textToSend.toLowerCase().includes(word)) || textToSend.length < 15;
@@ -189,12 +201,29 @@ export default function App() {
     if (isVague) {
         const lastUserMsg = [...messages].reverse().find(m => m.type === 'user');
         if (lastUserMsg) {
-            console.log("🚀 Enhancing Query with Memory:", lastUserMsg.text);
             messageToBackend = `${lastUserMsg.text}. ${textToSend}`;
         }
     }
 
     setIsLoading(true);
+
+    // --- FILLER VOICE (Instant Feedback) ---
+    if ('speechSynthesis' in window) {
+        setIsSpeaking(true); // Start animation instantly
+
+        const fillers = ["Okay...", "Just a sec...", "Checking...", "Right..."];
+        const randomFiller = fillers[Math.floor(Math.random() * fillers.length)];
+        const utter = new SpeechSynthesisUtterance(randomFiller);
+        utter.rate = 1.4; // Fast
+        utter.volume = 0.2; // Soft background volume
+
+        // Safety: If filler finishes before AI is ready, stop animation
+        utter.onend = () => {
+             if (!isPlayingAudio.current) setIsSpeaking(false);
+        };
+        window.speechSynthesis.speak(utter);
+    }
+    // ---------------------------------------
 
     try {
       const aiMsgId = Date.now() + 1;
@@ -216,6 +245,8 @@ export default function App() {
       let aiText = '';
       let sentenceBuffer = '';
 
+      // ... inside sendMessageToBackend
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -223,7 +254,6 @@ export default function App() {
         const chunk = decoder.decode(value, { stream: true });
         aiText += chunk;
         sentenceBuffer += chunk;
-
         if (sentenceBuffer.match(/[.!?]\s*$/)) {
           speakText(sentenceBuffer);
           sentenceBuffer = '';
@@ -243,8 +273,9 @@ export default function App() {
       setMessages(prev => [...prev, {
         id: Date.now() + 2,
         type: 'ai',
-        text: "⚠️ Connection interrupted. Please check backend."
+        text: "⚠️ Connection interrupted."
       }]);
+      setIsSpeaking(false);
     } finally {
       setIsLoading(false);
     }
@@ -256,16 +287,22 @@ export default function App() {
       sendMessageToBackend(msg);
   };
 
-  // --- ROBUST VOICE INPUT (Fixed Double Sends) ---
+  // --- MASTER CLASS VOICE INPUT (Sticky & Kill Switch) ---
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return alert("Browser not supported. Use Chrome.");
 
-    if (!SpeechRecognition) {
-      alert("Voice input is not supported. Use Chrome/Safari.");
-      return;
-    }
+    if (isListening || isSpeaking) {
+      // KILL SWITCH: Stop absolutely everything
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
-    if (isListening) {
+      if (currentAudioRef.current) {
+          currentAudioRef.current.pause();
+          currentAudioRef.current = null;
+      }
+      audioQueue.current = [];
+      setIsSpeaking(false);
+
       recognitionRef.current?.stop();
       setIsListening(false);
       return;
@@ -273,7 +310,8 @@ export default function App() {
 
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
-    processingRef.current = false; // Reset lock
+    processingRef.current = false;
+    finalTranscriptRef.current = '';
 
     recognition.lang = 'en-US';
     recognition.interimResults = true;
@@ -285,45 +323,43 @@ export default function App() {
     };
 
     recognition.onresult = (event) => {
-      // 1. CHECK LOCK: If we are already sending, ignore this event
       if (processingRef.current) return;
 
-      const currentTranscript = Array.from(event.results)
-        .map(result => result[0].transcript)
-        .join('');
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscriptRef.current += event.results[i][0].transcript + ' ';
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
 
-      setTextInput(currentTranscript);
+      const fullSentence = finalTranscriptRef.current + interimTranscript;
+      setTextInput(fullSentence);
 
-      // 2. RESET SILENCE TIMER
       if (silenceTimer.current) clearTimeout(silenceTimer.current);
 
-      // 3. START NEW TIMER (2.5 seconds silence)
       silenceTimer.current = setTimeout(() => {
-          processingRef.current = true; // LOCK THE DOOR
-
+          processingRef.current = true;
           recognition.stop();
           setIsListening(false);
 
-          if (currentTranscript.trim().length > 0) {
-              sendMessageToBackend(currentTranscript);
-              // Clear UI with a slight delay to prevent ghosting
+          const textToSend = (finalTranscriptRef.current + interimTranscript).trim();
+          if (textToSend.length > 0) {
+              sendMessageToBackend(textToSend);
               setTimeout(() => setTextInput(''), 100);
           }
       }, 2500);
     };
 
     recognition.onerror = (event) => {
-      // Ignore 'no-speech' errors which are common
-      if (event.error !== 'no-speech') {
-        console.error("Speech Error:", event.error);
-      }
+      if (event.error !== 'no-speech') console.error("Speech Error:", event.error);
       setIsListening(false);
       if (silenceTimer.current) clearTimeout(silenceTimer.current);
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      // We do NOT clear the timer here, to allow the silence timer to complete its job
     };
 
     recognition.start();
@@ -566,10 +602,13 @@ export default function App() {
       {/* --- INPUT AREA --- */}
       <div className="p-4 border-t border-slate-800/50 bg-slate-900/60 backdrop-blur-md relative">
 
-        {/* Visual Feedback for Neural TTS */}
+        {/* Visual Feedback for Neural TTS (Breathing Animation) */}
         {isSpeaking && (
-            <div className="text-center text-xs text-violet-400 animate-pulse mb-2 tracking-widest uppercase font-bold">
-                Lumira is Speaking...
+            <div className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1">
+                <div className="w-1 h-3 bg-violet-400 rounded-full animate-[bounce_1s_infinite]"></div>
+                <div className="w-1 h-5 bg-violet-400 rounded-full animate-[bounce_1s_infinite_100ms]"></div>
+                <div className="w-1 h-3 bg-violet-400 rounded-full animate-[bounce_1s_infinite_200ms]"></div>
+                <span className="text-xs text-violet-300 font-bold ml-2">LUMIRA SPEAKING</span>
             </div>
         )}
 

@@ -6,7 +6,8 @@ import uvicorn
 import shutil
 import os
 import sys
-import edge_tts  # <--- NEW IMPORT
+import edge_tts
+import random
 
 # --- NEW IMPORTS FOR DELETION ---
 from langchain_chroma import Chroma
@@ -60,13 +61,15 @@ async def chat_endpoint(request: ChatRequest):
 @app.get("/api/speak")
 async def speak(text: str):
     """
-    Generates high-quality Neural speech and streams it to the client.
+    Generates high-quality Neural speech with human-like variations.
     """
-    VOICE = "en-GB-SoniaNeural"
+    VOICE = "en-US-AvaNeural"
 
-    # CHANGE: Added rate="+20%" for faster, more energetic speech
+     # This prevents the voice from sounding "flat" or repetitive
+    random_pitch = f"{random.randint(-2,2):+d}Hz"
     async def audio_stream():
-        communicate = edge_tts.Communicate(text, VOICE, rate="+30%")
+        # Added 'pitch' parameter to the Communicate call
+        communicate = edge_tts.Communicate(text, VOICE, rate="+20%", pitch=random_pitch)
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 yield chunk["data"]
@@ -85,7 +88,7 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
     with open(file_path, "wb+") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    print(f"📂 Saved file: {file_path}")
+    print(f" Saved file: {file_path}")
     background_tasks.add_task(ingest_document, file_path)
 
     return {"status": "File uploaded successfully. Indexing in progress..."}
@@ -127,10 +130,9 @@ def delete_file(filename: str):
     # 1. Delete from Disk (Dataset folder)
     if os.path.exists(file_path):
         os.remove(file_path)
-        print("✅ File removed from disk.")
+        print(" File removed from disk.")
     else:
-        print("⚠️ File not found on disk, checking DB anyway...")
-
+        print(" File not found on disk, checking DB anyway...")
     # 2. Delete from Vector Database (ChromaDB)
     try:
         embeddings = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5")
@@ -144,7 +146,7 @@ def delete_file(filename: str):
         print(f"✅ Vectors deleted for: {filename}")
 
     except Exception as e:
-        print(f"❌ Error deleting from DB: {e}")
+        print(f" Error deleting from DB: {e}")
         return {"status": "Error deleting from database", "details": str(e)}
 
     return {"status": f"Deleted {filename} successfully"}
