@@ -29,7 +29,7 @@ vectorstore = Chroma(
 
 retriever = vectorstore.as_retriever(
     search_type="similarity",
-    search_kwargs={"k": 5} # Fetch top 5 relevant chunks
+    search_kwargs={"k": 8} # Fetch top 8 relevant chunks
 )
 
 print("✅ Retriever Ready with FastEmbed.")

@@ -90,7 +90,7 @@ def ask_lumira(question, filter_filename=None):
 
     try:
         # 3. CONFIGURE RETRIEVER (With Optional Locking)
-        search_kwargs = {"k": 5}
+        search_kwargs = {"k": 8}
 
         if filter_filename:
             # Reconstruct the full path because ChromaDB stores the full path in 'source'
