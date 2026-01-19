@@ -1,3 +1,4 @@
+// App.jsx - Updated to use local OTP backend
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Mic, Send, QrCode, UploadCloud, FileText, BarChart3,
@@ -5,7 +6,7 @@ import {
   Sparkles, Zap, Shield, MoreVertical, LogOut, User, Mail, Lock
 } from 'lucide-react';
 
-const OTP_API_BASE_URL = "https://jbf1xtgo07.execute-api.us-east-1.amazonaws.com/dev";
+const API_BASE_URL = "http://127.0.0.1:8000/api"; // Local backend
 
 // --- Components ---
 
@@ -59,7 +60,8 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [sessionId, setSessionId] = useState(''); // 🔹 comes from /otp/generate
+  const [sessionId, setSessionId] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   // --- VOICE LOGIC ---
   const speakText = (text) => {
@@ -89,7 +91,7 @@ export default function App() {
       const aiMsgId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiMsgId, type: 'ai', text: '' }]);
 
-      const response = await fetch('http://127.0.0.1:8000/api/chat', {
+      const response = await fetch(`${API_BASE_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: messageToSend }),
@@ -175,6 +177,7 @@ export default function App() {
 
   // --- Exhibitor Logic ---
   const [files, setFiles] = useState([]);
+  
   const handleFileUpload = async () => {
     const dummyContent = "Manual content...";
     const blob = new Blob([dummyContent], { type: 'text/plain' });
@@ -183,7 +186,7 @@ export default function App() {
     formData.append("file", file);
 
     try {
-      await fetch('http://127.0.0.1:8000/api/upload', { method: 'POST', body: formData });
+      await fetch(`${API_BASE_URL}/upload`, { method: 'POST', body: formData });
       const newFile = { name: "manual_upload.txt", size: '12 KB', date: new Date().toLocaleDateString() };
       setFiles([newFile, ...files]);
       alert("File uploaded to backend 'Dataset' folder!");
@@ -192,83 +195,87 @@ export default function App() {
     }
   };
 
-  // --- Auth Logic (AWS OTP) ---
-const handleSendOtp = async () => {
-  if (!email) return alert("Please enter an email");
-
-  try {
-    setIsSendingOtp(true);
-
-    const res = await fetch(`${OTP_API_BASE_URL}/otp/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-
-    const text = await res.text();
-    console.log("Generate raw:", text);
-
-    if (!res.ok) {
-      alert("Failed to send OTP. Please try again.");
+  // --- Auth Logic (Local OTP Backend) ---
+  const handleSendOtp = async () => {
+    if (!email) {
+      setErrorMessage("Please enter an email");
       return;
     }
 
-    const data = JSON.parse(text);
+    try {
+      setIsSendingOtp(true);
+      setErrorMessage('');
 
-    if (!data?.data?.token) {
-      alert("OTP sent, but no session ID returned.");
+      const res = await fetch(`${API_BASE_URL}/auth/otp/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setErrorMessage(data.detail || "Failed to send OTP. Please try again.");
+        return;
+      }
+
+      setSessionId(data.session_id);
+      setAuthStep("otp");
+      alert(`Verification code sent to ${email}. Check your inbox!`);
+
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("Network error while sending OTP.");
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (otp.length !== 6) {
+      setErrorMessage("Enter a valid 6-digit OTP");
       return;
     }
 
-    setSessionId(data.data.token);   // IMPORTANT FIX
-    setAuthStep("otp");
-
-    alert(`OTP sent to ${email}. Check your inbox.`);
-  } catch (err) {
-    console.error(err);
-    alert("Network error while sending OTP.");
-  } finally {
-    setIsSendingOtp(false);
-  }
-};
-
- const handleVerifyOtp = async () => {
-  if (otp.length !== 6) return alert("Enter valid OTP");
-
-  if (!sessionId) return alert("Missing session. Please request a new OTP.");
-
-  try {
-    setIsSendingOtp(true);
-
-    const res = await fetch(`${OTP_API_BASE_URL}/otp/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionId: sessionId,
-        token: otp,
-      }),
-    });
-
-    const text = await res.text();
-    console.log("Verify raw:", text);
-
-    if (!res.ok) {
-      alert("Failed to verify OTP. Try again.");
+    if (!sessionId) {
+      setErrorMessage("Missing session. Please request a new OTP.");
       return;
     }
 
-    setView("exhibitor-dash");
-    setSessionId(null);
-    setOtp("");
-    setAuthStep("email");
+    try {
+      setIsSendingOtp(true);
+      setErrorMessage('');
 
-  } catch (err) {
-    console.error(err);
-    alert("Network error verifying OTP.");
-  } finally {
-    setIsSendingOtp(false);
-  }
-};
+      const res = await fetch(`${API_BASE_URL}/auth/otp/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          otp: otp,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setErrorMessage(data.detail || "Failed to verify OTP. Try again.");
+        return;
+      }
+
+      // Success!
+      setView("exhibitor-dash");
+      setSessionId('');
+      setOtp('');
+      setAuthStep("email");
+      setErrorMessage('');
+
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("Network error verifying OTP.");
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
 
   // --- Views ---
   const renderLanding = () => (
@@ -306,8 +313,14 @@ const handleSendOtp = async () => {
 
         <h2 className="text-2xl font-bold text-white text-center mb-2">Exhibitor Login</h2>
         <p className="text-slate-400 text-center text-sm mb-8">
-          {authStep === 'email' ? 'Enter your registered email to receive an OTP.' : `Enter the code sent to ${email}`}
+          {authStep === 'email' ? 'Enter your email to receive a verification code.' : `Enter the code sent to ${email}`}
         </p>
+
+        {errorMessage && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+            {errorMessage}
+          </div>
+        )}
 
         <div className="space-y-4">
           {authStep === 'email' ? (
@@ -321,36 +334,53 @@ const handleSendOtp = async () => {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@company.com"
                   className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
                 />
               </div>
               <Button onClick={handleSendOtp} disabled={isSendingOtp} className="w-full mt-6">
-                {isSendingOtp ? 'Sending...' : 'Send Access Code'}
+                {isSendingOtp ? 'Sending...' : 'Send Verification Code'}
               </Button>
             </div>
           ) : (
             <div className="animate-in slide-in-from-right">
-              <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">One-Time Password</label>
+              <label className="block text-slate-400 text-xs uppercase font-bold mb-2 ml-1">Verification Code</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" />
                 <input
                   type="text"
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="123456"
                   maxLength={6}
                   className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white text-center tracking-[0.5em] font-mono text-lg focus:border-violet-500 focus:ring-1 focus:ring-violet-500 focus:outline-none transition-all placeholder:text-slate-600 placeholder:tracking-normal"
+                  onKeyDown={(e) => e.key === 'Enter' && handleVerifyOtp()}
                 />
               </div>
               <Button onClick={handleVerifyOtp} disabled={isSendingOtp} className="w-full mt-6">
                 {isSendingOtp ? 'Verifying...' : 'Verify & Login'}
               </Button>
-              <button onClick={() => setAuthStep('email')} className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400 transition-colors">
+              <button 
+                onClick={() => {
+                  setAuthStep('email');
+                  setOtp('');
+                  setErrorMessage('');
+                }} 
+                className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400 transition-colors"
+              >
                 Change Email
               </button>
             </div>
           )}
 
-          <Button variant="ghost" onClick={() => setView('landing')} className="w-full text-sm mt-2">Back to Home</Button>
+          <Button variant="ghost" onClick={() => {
+            setView('landing');
+            setAuthStep('email');
+            setEmail('');
+            setOtp('');
+            setErrorMessage('');
+          }} className="w-full text-sm mt-2">
+            Back to Home
+          </Button>
         </div>
       </div>
     </div>

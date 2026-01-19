@@ -1,14 +1,18 @@
-from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+# main.py - Updated with OTP authentication
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 import uvicorn
 import shutil
 import os
 import sys
-import edge_tts  # <--- NEW IMPORT
+import edge_tts
 
-# --- NEW IMPORTS FOR DELETION ---
+# Import OTP components
+from auth import otp_manager, email_service, rate_limiter
+
+# NEW IMPORTS FOR DELETION
 from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 
@@ -35,10 +39,22 @@ app.add_middleware(
 )
 
 
+# --- Pydantic Models ---
 class ChatRequest(BaseModel):
     message: str
-    active_file: str = None  # Updated to accept context
+    active_file: str = None
 
+
+class OTPGenerateRequest(BaseModel):
+    email: EmailStr
+
+
+class OTPVerifyRequest(BaseModel):
+    session_id: str
+    otp: str
+
+
+# --- EXISTING ENDPOINTS ---
 
 @app.get("/")
 def read_root():
@@ -54,9 +70,6 @@ async def chat_endpoint(request: ChatRequest):
     )
 
 
-# --- NEW VOICE ENDPOINT ---
-# In backend/main.py
-
 @app.get("/api/speak")
 async def speak(text: str):
     """
@@ -64,7 +77,6 @@ async def speak(text: str):
     """
     VOICE = "en-GB-SoniaNeural"
 
-    # CHANGE: Added rate="+20%" for faster, more energetic speech
     async def audio_stream():
         communicate = edge_tts.Communicate(text, VOICE, rate="+30%")
         async for chunk in communicate.stream():
@@ -139,7 +151,6 @@ def delete_file(filename: str):
             embedding_function=embeddings
         )
 
-        # We delete by filtering for the "source" metadata that matches the file path
         vector_store.delete(where={"source": file_path})
         print(f"✅ Vectors deleted for: {filename}")
 
@@ -150,5 +161,102 @@ def delete_file(filename: str):
     return {"status": f"Deleted {filename} successfully"}
 
 
+# --- NEW OTP AUTHENTICATION ENDPOINTS ---
+
+@app.post("/api/auth/otp/generate")
+async def generate_otp(request: OTPGenerateRequest):
+    """
+    Generate and send OTP to exhibitor email
+    """
+    email = request.email.lower().strip()
+
+    # Rate limiting check
+    if not rate_limiter.is_allowed(email):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again in 10 minutes."
+        )
+
+    try:
+        # Generate OTP
+        session_id, otp = otp_manager.create_otp(email)
+
+        # Send email
+        success = email_service.send_otp(email, otp)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send email. Please try again."
+            )
+
+        print(f"✅ OTP sent to {email}: {otp}")  # Remove in production!
+
+        return {
+            "success": True,
+            "message": f"Verification code sent to {email}",
+            "session_id": session_id
+        }
+
+    except Exception as e:
+        print(f"❌ OTP generation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error. Please try again."
+        )
+
+
+@app.post("/api/auth/otp/verify")
+async def verify_otp(request: OTPVerifyRequest):
+    """
+    Verify OTP and authenticate exhibitor
+    """
+    try:
+        success, result = otp_manager.verify_otp(
+            request.session_id,
+            request.otp
+        )
+
+        if success:
+            # Result is the email when successful
+            email = result
+            print(f"✅ User authenticated: {email}")
+
+            return {
+                "success": True,
+                "message": "Authentication successful",
+                "email": email
+            }
+        else:
+            # Result is error message when failed
+            raise HTTPException(
+                status_code=401,
+                detail=result
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ OTP verification error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error. Please try again."
+        )
+
+
+# --- Optional: Check OTP status ---
+@app.get("/api/auth/status")
+async def auth_status():
+    """
+    Get current OTP system status (for debugging)
+    """
+    return {
+        "active_sessions": len(otp_manager.otp_store),
+        "rate_limiter_entries": len(rate_limiter.requests)
+    }
+
+
 if __name__ == "__main__":
+    print("🚀 Starting Lumira Backend with OTP Authentication...")
+    print("📧 Make sure to set SMTP_EMAIL and SMTP_PASSWORD in .env file")
     uvicorn.run(app, host="0.0.0.0", port=8000)

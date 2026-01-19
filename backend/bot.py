@@ -11,7 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 try:
     from Utils.pdfvectorising import vectorstore
 except ImportError:
-    from pdfvectorising import vectorstore
+    from Utils.pdfvectorising import vectorstore
 
 # Use the Chat Model
 model = OllamaLLM(model="llama3.2")
