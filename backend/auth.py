@@ -105,10 +105,6 @@ class EmailService:
             )
 
     def send_otp(self, receiver_email: str, otp: str) -> bool:
-        """
-        Send OTP via email
-        Returns True if successful, False otherwise
-        """
         try:
             msg = EmailMessage()
 
