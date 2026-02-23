@@ -13,27 +13,64 @@ try:
 except ImportError:
     from pdfvectorising import vectorstore
 
-# Use the Chat Model
-model = OllamaLLM(model="llama3.2")
+# Use the Chat Model with temperature for creative, varied responses
+model = OllamaLLM(model="llama3.2", temperature=0.7)
 
-# --- PROMPT TEMPLATE ---
-template = """
-System: You are Lumira, an AI voice assistant for an exhibition. 
+# --- DUAL PROMPT TEMPLATES ---
+# Normal mode: Concise, voice-friendly
+normal_template = """
+You are Lumira, an engaging AI assistant for an exhibition. Provide helpful, natural responses.
+
 Context: {context}
-User Question: {question}
+Question: {question}
 
-Instructions:
-1. **DIRECT ANSWER:** Answer the question immediately. Do NOT repeat the question.
-2. **SHORT & SPOKEN:** Use simple, spoken English. Maximum 3-4 sentences. bullet points (if needed).
-3. **CONTEXT ONLY:** Use the provided Context for factual answers.
-4. **FALLBACK:** If the Context is empty or irrelevant to the question, say "I don't have that information, anything you would like to know on the topic at hand? etc."
-5. **OUTOFCONTEXT:** Don't answer questions that are "IRRELEVANT" or "OUTOFCONTEXT", questions which are not related to the project, just reply - "Please Ask A Relevant Question About This Project". This must also include random questions
-6. **TECHQUESTIONS:** Don't answer random tech questions that are asked, answer only product/project based questions based on the data provided
-7. **NO GREETINGS:** Do NOT say "Hello", "Hi", "I am Lumira", or "As an AI" after the initial greetings. Start answering the question immediately.
+Guidelines:
+• Answer directly and naturally - vary your phrasing
+• Keep it conversational (2-4 sentences for voice)
+• Use Context as your primary source
+• If Context lacks info: "I don't have details on that. Want to know about [related topic]?"
+• For off-topic: Politely redirect to the project
+• Be engaging, not robotic - vary sentence structure
+• Skip "As an AI" or "I am Lumira" phrases
+
+Answer:
 """
 
-prompt = ChatPromptTemplate.from_template(template)
-chain = prompt | model
+# Deep mode: Comprehensive technical explanations
+deep_template = """
+You are Lumira, a technical AI assistant. The user asked a detailed technical question.
+
+Context: {context}
+Question: {question}
+
+Guidelines for DETAILED responses:
+• Provide comprehensive technical explanations (5-10 sentences)
+• Structure: Overview → Technical Details → Key Points
+• Use technical terminology from the Context
+• Cover architecture, implementation, and how things work
+• Still base everything on the Context provided
+• Be thorough but clear - explain complex concepts well
+• Vary your phrasing naturally
+
+Detailed Answer:
+"""
+
+normal_prompt = ChatPromptTemplate.from_template(normal_template)
+deep_prompt = ChatPromptTemplate.from_template(deep_template)
+
+# --- DEEP DIVE DETECTION ---
+def is_deep_question(question: str) -> bool:
+    """Detect if question requires detailed technical explanation"""
+    deep_keywords = [
+        "how does", "how do", "how is", "how are",
+        "explain in detail", "in detail", "detailed explanation",
+        "architecture", "implementation", "technical details",
+        "work internally", "under the hood", "mechanism",
+        "step by step", "process of", "workflow",
+        "breakdown", "comprehensive", "thorough explanation"
+    ]
+    question_lower = question.lower()
+    return any(keyword in question_lower for keyword in deep_keywords)
 
 # --- CONVERSATIONAL FILTER LIST ---
 SMALL_TALK = {
@@ -89,8 +126,11 @@ def ask_lumira(question, filter_filename=None):
         return
 
     try:
-        # 3. CONFIGURE RETRIEVER (With Optional Locking)
-        search_kwargs = {"k": 8}
+        # 3. DETECT DEEP DIVE MODE
+        is_deep = is_deep_question(question)
+        
+        # 4. CONFIGURE RETRIEVER (Dynamic based on question depth)
+        search_kwargs = {"k": 12 if is_deep else 8}  # More chunks for deep questions
 
         if filter_filename:
             # Reconstruct the full path because ChromaDB stores the full path in 'source'
@@ -100,6 +140,10 @@ def ask_lumira(question, filter_filename=None):
             # STRICT FILTER: Only look at vectors from this specific file
             search_kwargs["filter"] = {"source": full_path}
             print(f"🔒 Locking search to: {filter_filename}")
+        
+        # Log mode
+        mode = "DEEP DIVE" if is_deep else "NORMAL"
+        print(f"🎯 Mode: {mode} | Retrieving {search_kwargs['k']} chunks")
 
         # Create a dynamic retriever for this specific request
         retriever = vectorstore.as_retriever(
@@ -120,8 +164,12 @@ def ask_lumira(question, filter_filename=None):
 
         # 5. Convert docs to string
         formatted_context = "\n\n".join([doc.page_content for doc in context_docs])
+        
+        # 6. SELECT PROMPT BASED ON MODE
+        selected_prompt = deep_prompt if is_deep else normal_prompt
+        chain = selected_prompt | model
 
-        # 6. GENERATE ANSWER
+        # 7. GENERATE ANSWER
         for chunk in chain.stream({"context": formatted_context, "question": question}):
             yield chunk
 

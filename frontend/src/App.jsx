@@ -36,31 +36,31 @@ const CornerLights = () => {
   const canvasRef = useRef(null);
   useEffect(() => {
     const canvas = canvasRef.current;
-    if(!canvas) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     let particles = [];
     const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
     window.addEventListener('resize', resize); resize();
     const draw = () => {
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      const g1 = ctx.createRadialGradient(0,0,0,0,0,400);
-      g1.addColorStop(0,'rgba(139, 92, 246, 0.25)'); g1.addColorStop(1,'transparent');
-      ctx.fillStyle = g1; ctx.fillRect(0,0,400,400);
-      const g2 = ctx.createRadialGradient(canvas.width,0,0,canvas.width,0,400);
-      g2.addColorStop(0,'rgba(139, 92, 246, 0.25)'); g2.addColorStop(1,'transparent');
-      ctx.fillStyle = g2; ctx.fillRect(canvas.width-400,0,400,400);
-      if(particles.length < 40) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const g1 = ctx.createRadialGradient(0, 0, 0, 0, 0, 400);
+      g1.addColorStop(0, 'rgba(139, 92, 246, 0.25)'); g1.addColorStop(1, 'transparent');
+      ctx.fillStyle = g1; ctx.fillRect(0, 0, 400, 400);
+      const g2 = ctx.createRadialGradient(canvas.width, 0, 0, canvas.width, 0, 400);
+      g2.addColorStop(0, 'rgba(139, 92, 246, 0.25)'); g2.addColorStop(1, 'transparent');
+      ctx.fillStyle = g2; ctx.fillRect(canvas.width - 400, 0, 400, 400);
+      if (particles.length < 40) {
         const isLeft = Math.random() > 0.5;
         particles.push({
-          x: isLeft ? Math.random()*150 : canvas.width - Math.random()*150,
-          y: -10, v: Math.random()*1.5 + 0.5, s: Math.random()*2, o: Math.random()
+          x: isLeft ? Math.random() * 150 : canvas.width - Math.random() * 150,
+          y: -10, v: Math.random() * 1.5 + 0.5, s: Math.random() * 2, o: Math.random()
         });
       }
-      particles.forEach((p,i) => {
+      particles.forEach((p, i) => {
         p.y += p.v; p.o -= 0.005;
         ctx.fillStyle = `rgba(255,255,255,${p.o})`;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI*2); ctx.fill();
-        if(p.o <= 0) particles.splice(i,1);
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.s, 0, Math.PI * 2); ctx.fill();
+        if (p.o <= 0) particles.splice(i, 1);
       });
       requestAnimationFrame(draw);
     };
@@ -68,6 +68,16 @@ const CornerLights = () => {
     return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(id); };
   }, []);
   return <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" />;
+};
+
+const WaterFlow = () => {
+  return (
+    <div className="water-flow-bg">
+      <div className="water-blob"></div>
+      <div className="water-blob"></div>
+      <div className="water-blob"></div>
+    </div>
+  );
 };
 
 const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled }) => {
@@ -78,7 +88,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', icon: 
     ghost: "bg-transparent hover:bg-white/5 text-slate-400 hover:text-white shadow-none"
   };
   return (
-    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${className} btn-primary`}>
       <span className="relative z-20 flex items-center gap-2">{Icon && <Icon className="w-5 h-5" />}{children}</span>
     </button>
   );
@@ -95,7 +105,7 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
-  const [micConfidence, setMicConfidence] = useState(0);
+  const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('lumira_voice') || 'ava');
 
   // --- OTP AUTH STATE ---
   const [authStep, setAuthStep] = useState('email');
@@ -116,14 +126,13 @@ export default function App() {
   const isPlayingAudio = useRef(false);
   const currentAudioRef = useRef(null);
   const fileInputRef = useRef(null);
-  const lastMsgRef = useRef({ text: '', time: 0 });
   const abortControllerRef = useRef(null);
-  const isSendPendingRef = useRef(false);
 
-  // --- ROBUST AUDIO RECORDING REFS ---
+  // --- AUDIO RECORDING REFS ---
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const isHoldRef = useRef(false);
+  const streamRef = useRef(null);
 
   useEffect(() => { fetchUploadedFiles(); }, []);
 
@@ -159,8 +168,8 @@ export default function App() {
   const stopEverything = () => {
     if (abortControllerRef.current) { abortControllerRef.current.abort(); abortControllerRef.current = null; }
     if (currentAudioRef.current) { currentAudioRef.current.pause(); currentAudioRef.current.currentTime = 0; }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     audioQueue.current = [];
+    isPlayingAudio.current = false;
     setIsLoading(false);
   };
 
@@ -210,114 +219,104 @@ export default function App() {
     }
   };
 
-  // --- AUDIO OUTPUT ENGINE ---
+  // --- OPTIMIZED AUDIO ENGINE ---
   const processAudioQueue = async () => {
-    if (isPlayingAudio.current) return;
-    if (audioQueue.current.length === 0) return;
-
+    if (isPlayingAudio.current || audioQueue.current.length === 0) return;
     isPlayingAudio.current = true;
     const nextAudioUrl = audioQueue.current.shift();
     const audio = new Audio(nextAudioUrl);
     currentAudioRef.current = audio;
 
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('play', () => {});
-      navigator.mediaSession.setActionHandler('pause', () => {});
-    }
-
-    try { await audio.play(); } catch (e) { isPlayingAudio.current = false; processAudioQueue(); return; }
     audio.onended = () => {
       isPlayingAudio.current = false;
       currentAudioRef.current = null;
       URL.revokeObjectURL(nextAudioUrl);
       processAudioQueue();
     };
+
+    audio.onerror = (e) => {
+      console.error("Audio playback error:", e);
+      isPlayingAudio.current = false;
+      currentAudioRef.current = null;
+      URL.revokeObjectURL(nextAudioUrl);
+      // Don't auto-retry to avoid infinite loop
+    };
+
+    try {
+      await audio.play();
+    } catch (e) {
+      console.error("Audio play() failed:", e);
+      isPlayingAudio.current = false;
+      currentAudioRef.current = null;
+      URL.revokeObjectURL(nextAudioUrl);
+    }
   };
 
   const speakText = async (text) => {
-    if (!text || !text.trim()) return;
+    if (!text?.trim()) return;
     try {
-      const response = await fetch(`${API_BASE_URL}/api/speak?text=${encodeURIComponent(text)}`);
+      const response = await fetch(`${API_BASE_URL}/api/speak?text=${encodeURIComponent(text)}&voice=${selectedVoice}`);
       if (!response.ok) return;
       const blob = await response.blob();
       audioQueue.current.push(URL.createObjectURL(blob));
       processAudioQueue();
-    } catch (error) {}
+    } catch (error) { }
   };
 
-  // --- ADD THIS NEW STATE & EFFECT AT THE TOP OF App() ---
-  const streamRef = useRef(null); // Keep mic "warm"
+  const changeVoice = (voice) => {
+    setSelectedVoice(voice);
+    localStorage.setItem('lumira_voice', voice);
+  };
 
-  // Wake up mic immediately when app loads (Ask permission once)
+  // Warm up mic on load for instant recording
   useEffect(() => {
     const warmupMic = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        streamRef.current = stream; // Store it for later
-      } catch (err) {
-        console.warn("Mic warmup failed (User must tap first)", err);
-      }
+        streamRef.current = stream;
+      } catch (err) { console.warn("Mic warmup failed", err); }
     };
     warmupMic();
-
-    return () => {
-      // Cleanup: Turn off mic when user leaves the page
-      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-    };
+    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); };
   }, []);
 
 
-  // --- UPDATED START RECORDING (INSTANT START) ---
   const startRecording = async (e) => {
-    if (e && e.cancelable) e.preventDefault();
+    if (e?.cancelable) e.preventDefault();
     if (isListening || isHoldRef.current) return;
-
     isHoldRef.current = true;
-    setTextInput("🎤 Listening..."); // Visual feedback immediately
-
+    setTextInput("🎤 Listening...");
     try {
-      // 1. Reuse existing stream if available, otherwise request it
       let stream = streamRef.current;
-      if (!stream || !stream.active) {
-         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-         streamRef.current = stream;
+      if (!stream?.active) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
       }
-
-      // Safety: User released while we were checking stream
       if (!isHoldRef.current) return;
-
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
-
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
-
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         await handleVoiceUpload(audioBlob);
-        // NOTE: We DO NOT stop the tracks here anymore. We keep them open.
       };
-
-      mediaRecorderRef.current.start(100); // Faster slicing (100ms) for quicker capture
+      mediaRecorderRef.current.start(100);
       setIsListening(true);
-
     } catch (err) {
       console.error("Mic Error", err);
       isHoldRef.current = false;
     }
   };
 
-  // --- UPDATED STOP RECORDING ---
   const stopRecording = (e) => {
-    if (e && e.cancelable) e.preventDefault();
+    if (e?.cancelable) e.preventDefault();
     isHoldRef.current = false;
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    if (mediaRecorderRef.current?.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       setIsListening(false);
     }
-    // We intentionally do NOT stop the stream tracks here, keeping the mic warm.
   };
 
   const handleVoiceUpload = async (audioBlob) => {
@@ -326,24 +325,43 @@ export default function App() {
     try {
       const formData = new FormData();
       formData.append("file", audioBlob);
-      const res = await fetch(`${API_BASE_URL}/api/stt`, { method: "POST", body: formData });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout (increased from 30s)
+      const res = await fetch(`${API_BASE_URL}/api/stt`, {
+        method: "POST",
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error(`STT failed (${res.status}):`, errorText);
+        throw new Error(`STT failed: ${res.status}`);
+      }
       const data = await res.json();
-      if (data.text) sendMessageToBackend(data.text);
-      else setTextInput("");
+      if (data.text?.trim()) {
+        sendMessageToBackend(data.text);
+      } else {
+        console.warn("STT returned empty text");
+        setTextInput("");
+        setIsLoading(false);
+      }
     } catch (e) {
-      console.error(e);
-      setTextInput("Error hearing audio.");
-    } finally {
+      console.error("STT Error:", e);
+      setTextInput("");
       setIsLoading(false);
+      if (e.name === 'AbortError') {
+        alert("Voice processing timed out (60s). Please try again with a shorter message.");
+      } else {
+        alert("Could not process audio. Check your connection and try again.");
+      }
     }
   };
 
   // --- CHAT LOGIC ---
   const sendMessageToBackend = async (textToSend) => {
     if (!textToSend || !textToSend.trim()) return;
-
     stopEverything();
-    isSendPendingRef.current = false;
 
     const userMsgId = Date.now();
     const aiMsgId = userMsgId + 10;
@@ -429,91 +447,318 @@ export default function App() {
 
   // --- RENDERERS ---
 
-  const renderLanding = () => (
-    <div className="flex flex-col h-full items-center justify-center p-6 relative overflow-hidden animate-in fade-in z-10">
-      <CornerLights />
-      <div className="z-10 text-center flex flex-col items-center w-full max-w-4xl">
-        <div className="mb-8 animate-pulse duration-[4000ms]">
-          <img src="/lumira-logo.png" alt="Lumira Logo" className="w-40 h-40 object-contain drop-shadow-[0_0_35px_rgba(255,255,255,0.25)]" />
+const renderLanding = () => (
+  <div className="flex flex-col h-full items-center justify-center p-6 relative overflow-hidden z-10">
+    <WaterFlow />
+    <CornerLights />
+
+    {/* Main Content Container - Better Spacing */}
+    <div className="z-10 text-center flex flex-col items-center w-full max-w-4xl">
+
+      {/* Logo - Simplified, No Heavy Box */}
+      <div className="mb-16 relative group">
+        {/* Subtle glow only */}
+        <div className="absolute inset-0 bg-violet-500/10 rounded-full blur-3xl"></div>
+        <img
+          src="/lumira-logo.png"
+          alt="Lumira Logo"
+          className="relative w-32 h-32 object-contain drop-shadow-[0_0_40px_rgba(139,92,246,0.6)] transition-transform duration-500 group-hover:scale-110"
+        />
+      </div>
+
+      {/* Title Section - Reduced Size, Better Spacing */}
+      <div className="space-y-8 mb-24">
+        <div className="relative">
+          {/* Smaller, more elegant title */}
+          <h1 className="text-6xl md:text-7xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-br from-white via-violet-100 to-indigo-100 py-2">
+            LUMIRA
+          </h1>
+          {/* Subtle glow */}
+          <div className="absolute -inset-2 bg-gradient-to-r from-violet-600/10 to-indigo-600/10 blur-xl -z-10"></div>
         </div>
-        <div className="space-y-4 mb-20">
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tighter text-white drop-shadow-2xl animate-pulse duration-[4000ms] delay-500">LUMIRA</h1>
-          <p className="text-violet-200 text-xl font-medium tracking-wide opacity-80">AI Exhibition Assistant</p>
-        </div>
-        <Button onClick={() => setView('exhibitor-login')} className="w-64 py-5 text-lg bg-slate-900/40 border border-white/10 hover:bg-slate-800 hover:border-violet-500/50 text-white rounded-full backdrop-blur-md transition-all shadow-xl hover:shadow-violet-500/20">Exhibitor Portal</Button>
+
+        {/* Subtitle - Minimal Design */}
+        <p className="text-lg md:text-xl font-medium text-slate-300/80 tracking-wide">
+          AI Exhibition Assistant
+        </p>
+      </div>
+
+      {/* CTA Button - More Space Around It */}
+      <div className="relative group mb-12">
+        {/* Glow effect */}
+        <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-full blur-lg opacity-40 group-hover:opacity-60 transition duration-500"></div>
+
+        {/* Button - Cleaner Design */}
+        <button
+          onClick={() => setView('exhibitor-login')}
+          className="relative px-12 py-5 text-base font-semibold bg-slate-900/60 backdrop-blur-xl border border-white/20 hover:border-violet-400/60 text-white rounded-full transition-all duration-300 shadow-xl hover:shadow-violet-500/20 active:scale-95 hover:bg-slate-900/80"
+        >
+          <span className="relative z-10 flex items-center justify-center gap-3">
+            <Shield className="w-5 h-5" />
+            Exhibitor Portal
+          </span>
+        </button>
+      </div>
+
+      {/* Decorative Dots - More Subtle */}
+      <div className="flex gap-3 opacity-40">
+        {[...Array(3)].map((_, i) => (
+          <div
+            key={i}
+            className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse"
+            style={{ animationDelay: `${i * 0.3}s`, animationDuration: '3s' }}
+          ></div>
+        ))}
       </div>
     </div>
-  );
+  </div>
+);
 
   const renderExhibitorLogin = () => (
-    <div className="flex flex-col items-center justify-center h-full p-6 relative z-10 animate-in fade-in">
-      <div className="w-full max-w-sm bg-slate-900/60 backdrop-blur-xl p-8 rounded-2xl border border-slate-700/50 shadow-2xl">
-        <div className="flex justify-center mb-6"><div className="w-12 h-12 bg-violet-600 rounded-lg flex items-center justify-center shadow-lg shadow-violet-500/20"><Shield className="text-white" /></div></div>
-        <h2 className="text-2xl font-bold text-white text-center mb-2">Exhibitor Login</h2>
-        <p className="text-slate-400 text-center text-sm mb-8">{authStep === 'email' ? 'Enter email for verification.' : `Enter code sent to ${email}`}</p>
-        {errorMessage && (<div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">{errorMessage}</div>)}
-        <div className="space-y-4">
-          {authStep === 'email' ? (
-            <div>
-              <div className="relative"><Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white focus:border-violet-500 outline-none" /></div>
-              <Button onClick={handleSendOtp} disabled={isSendingOtp} className="w-full mt-6">{isSendingOtp ? 'Sending...' : 'Send Verification Code'}</Button>
-            </div>
-          ) : (
-            <div className="animate-in slide-in-from-right">
-              <div className="relative"><Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5" /><input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="123456" className="w-full bg-slate-950/50 border border-slate-700 rounded-xl pl-10 p-3 text-white text-center tracking-[0.5em] font-mono text-lg focus:border-violet-500 outline-none" /></div>
-              <Button onClick={handleVerifyOtp} disabled={isSendingOtp} className="w-full mt-6">Verify & Login</Button>
-              <button onClick={() => { setAuthStep('email'); setOtp(''); }} className="w-full mt-4 text-sm text-slate-500 hover:text-violet-400">Change Email</button>
-            </div>
-          )}
-          <Button variant="ghost" onClick={() => setView('landing')} className="w-full text-sm mt-2">Back to Home</Button>
-        </div>
-      </div>
-    </div>
-  );
+  <div className="flex flex-col items-center justify-center h-full p-6 relative z-10">
+    <WaterFlow />
 
-  const renderDash = () => (
-    <div className="flex h-full z-10 relative">
-      <div className="w-64 border-r border-slate-800/50 bg-slate-900/60 backdrop-blur-md hidden md:flex flex-col p-6">
-        <div className="flex items-center gap-3 mb-8"><div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center"><Sparkles className="text-white" size={16} /></div><span className="text-xl font-bold text-white">LUMIRA</span></div>
-        <div className="space-y-2 flex-1"><div className="flex items-center gap-3 px-4 py-3 bg-violet-600/10 text-violet-400 rounded-xl border border-violet-600/20"><BarChart3 size={20} /><span className="font-medium">Dashboard</span></div></div>
-        <button onClick={() => { setView('landing'); setIsAdmin(false); }} className="flex items-center gap-3 text-slate-400 hover:text-white"><LogOut size={20} /> Logout</button>
-      </div>
-      <div className="flex-1 p-8 overflow-y-auto">
-        <h2 className="text-2xl font-bold text-white mb-6">Knowledge Base</h2>
-        <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="application/pdf" />
-        <div onClick={() => fileInputRef.current.click()} className="border-2 border-dashed border-slate-700/50 rounded-xl p-12 text-center bg-slate-900/40 cursor-pointer hover:border-violet-500/50 transition-colors backdrop-blur-sm group">
-          <UploadCloud size={48} className="mx-auto text-violet-400 mb-4 group-hover:scale-110 transition-transform" />
-          <p className="text-white font-medium">Click to upload Datasheet (PDF)</p>
-        </div>
-        <div className="mt-8 space-y-3">
-          {files.map((f, i) => (
-            <div key={i} className="flex item-center justify-between p-4 bg-slate-800/60 backdrop-blur-sm rounded-xl border border-slate-700/50 hover:border-violet-500/30 transition-colors">
-              <div className="flex items-center gap-3">
-                <FileText className={`text-${f.status === 'Active' ? 'violet' : 'green'}-400`} size={20} />
-                <div><p className="text-white text-sm font-medium">{f.name}</p><p className="text-slate-500 text-xs">{f.size}</p></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`text-xs font-bold px-3 py-1 rounded-full font-mono ${f.status === 'Active' ? 'text-violet-400 bg-violet-400/10' : 'text-green-400 bg-green-400/10'}`}>{f.status === 'Active' ? "● ACTIVE" : "ANALYZING..."}</div>
-                <button onClick={() => { setActiveFile(f.name); setIsAdmin(true); setIsLocked(true); setHasInteracted(true); setMessages([{ id: Date.now(), type: 'ai', text: `${getGreeting()}. Connected to ${f.name}.` }]); setView('chat'); }} className="p-2 text-violet-400 hover:text-white hover:bg-violet-600 rounded-lg transition-colors"><Play size={18} /></button>
-                <button onClick={() => setShowQrFor(f.name)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"><QrIcon size={18} /></button>
-                <button onClick={() => handleDeleteFile(f.name)} className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg"><Trash2 size={18} /></button>
-              </div>
-            </div>
-          ))}
-        </div>
-        {showQrFor && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in">
-            <div className="bg-slate-900 border border-green-500/50 p-8 rounded-2xl max-w-sm w-full text-center relative shadow-[0_0_50px_rgba(34,197,94,0.3)]">
-              <button onClick={() => setShowQrFor(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"><X /></button>
-              <div className="mb-6"><span className="text-[10px] font-bold tracking-[0.2em] text-green-500 uppercase bg-green-500/10 px-3 py-1 rounded-full border border-green-500/20">TARGET LOCKED</span><h3 className="text-xl font-bold text-white mt-4 break-words font-mono">{showQrFor}</h3></div>
-              <div className="flex justify-center p-4 bg-black border border-green-500/30 rounded-xl mb-6"><QRCode value={`${CLIENT_URL}/?project=${showQrFor}`} size={220} fgColor="#22c55e" bgColor="#000000" style={{ height: "auto", maxWidth: "100%", width: "100%" }} /></div>
-              <p className="text-xs text-green-500/60 font-mono">SCAN_TO_INITIATE_UPLINK</p>
+    {/* Glass Morphism Login Card */}
+    <div className="w-full max-w-md relative group">
+      {/* Glow Effect */}
+      <div className="absolute -inset-1 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-3xl blur-2xl opacity-20 group-hover:opacity-30 transition duration-500"></div>
+
+      {/* Main Card */}
+      <div className="relative bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-2xl p-10 rounded-3xl border border-white/10 shadow-2xl">
+
+        {/* Icon Header with Clay Effect */}
+        <div className="flex justify-center mb-8">
+          <div className="relative">
+            <div className="absolute inset-0 bg-violet-600/30 rounded-2xl blur-xl"></div>
+            <div className="relative w-16 h-16 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-violet-500/30 border border-white/10">
+              <Shield className="text-white w-8 h-8" />
             </div>
           </div>
+        </div>
+
+        <h2 className="text-3xl font-bold text-white text-center mb-3 bg-clip-text text-transparent bg-gradient-to-r from-white to-violet-200">
+          Exhibitor Login
+        </h2>
+        <p className="text-slate-400 text-center text-sm mb-10">
+          {authStep === 'email' ? 'Enter your email for verification' : `Enter code sent to ${email}`}
+        </p>
+
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-red-500/10 backdrop-blur-sm border border-red-500/30 rounded-2xl text-red-400 text-sm">
+            {errorMessage}
+          </div>
         )}
+
+        <div className="space-y-6">
+          {authStep === 'email' ? (
+            <div className="space-y-6">
+              <div className="relative group">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5 z-10" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  className="w-full bg-slate-950/50 backdrop-blur-sm border border-slate-700/50 rounded-2xl pl-12 pr-4 py-4 text-white placeholder-slate-500 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 outline-none transition-all"
+                />
+              </div>
+              <Button
+                onClick={handleSendOtp}
+                disabled={isSendingOtp}
+                className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold py-4 rounded-2xl hover:shadow-lg hover:shadow-violet-500/30 transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed border border-white/10"
+              >
+                {isSendingOtp ? 'Sending...' : 'Send Verification Code'}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-6 animate-in slide-in-from-right">
+              <div className="relative group">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 w-5 h-5 z-10" />
+                <input
+                  type="text"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="123456"
+                  className="w-full bg-slate-950/50 backdrop-blur-sm border border-slate-700/50 rounded-2xl pl-12 pr-4 py-4 text-white text-center tracking-[0.5em] font-mono text-xl focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 outline-none transition-all"
+                />
+              </div>
+              <Button
+                onClick={handleVerifyOtp}
+                disabled={isSendingOtp}
+                className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold py-4 rounded-2xl hover:shadow-lg hover:shadow-violet-500/30 transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed border border-white/10"
+              >
+                Verify & Login
+              </Button>
+              <button
+                onClick={() => { setAuthStep('email'); setOtp(''); }}
+                className="w-full text-sm text-slate-400 hover:text-violet-400 transition-colors py-2"
+              >
+                Change Email
+              </button>
+            </div>
+          )}
+
+          <Button
+            variant="ghost"
+            onClick={() => setView('landing')}
+            className="w-full mt-4 text-sm text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 py-3 rounded-2xl transition-all border border-transparent hover:border-white/10"
+          >
+            Back to Home
+          </Button>
+        </div>
       </div>
     </div>
-  );
+  </div>
+);
+
+  const renderDash = () => (
+  <div className="flex h-full z-10 relative">
+    {/* Sidebar with Glass Effect */}
+    <div className="w-72 border-r border-white/5 bg-gradient-to-b from-slate-900/80 to-slate-950/80 backdrop-blur-xl hidden md:flex flex-col p-8 shadow-2xl">
+
+      {/* Logo Section */}
+      <div className="flex items-center gap-4 mb-12">
+        <div className="w-10 h-10 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-violet-500/30">
+          <Sparkles className="text-white" size={20} />
+        </div>
+        <span className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-violet-200">LUMIRA</span>
+      </div>
+
+      {/* Navigation */}
+      <div className="space-y-3 flex-1">
+        <div className="flex items-center gap-4 px-5 py-4 bg-gradient-to-r from-violet-600/20 to-indigo-600/20 text-violet-300 rounded-2xl border border-violet-500/30 backdrop-blur-sm shadow-lg">
+          <BarChart3 size={22} />
+          <span className="font-semibold">Dashboard</span>
+        </div>
+      </div>
+
+      {/* Logout Button */}
+      <button
+        onClick={() => { setView('landing'); setIsAdmin(false); }}
+        className="flex items-center gap-4 text-slate-400 hover:text-white px-5 py-4 rounded-2xl hover:bg-white/5 transition-all border border-transparent hover:border-white/10"
+      >
+        <LogOut size={22} />
+        <span className="font-medium">Logout</span>
+      </button>
+    </div>
+
+    {/* Main Content Area */}
+    <div className="flex-1 p-10 overflow-y-auto">
+      <h2 className="text-3xl font-bold text-white mb-8 bg-clip-text text-transparent bg-gradient-to-r from-white to-violet-200">
+        Knowledge Base
+      </h2>
+
+      <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="application/pdf" />
+
+      {/* Upload Zone - Clay Morphism */}
+      <div
+        onClick={() => fileInputRef.current.click()}
+        className="relative group cursor-pointer mb-10"
+      >
+        <div className="absolute -inset-1 bg-gradient-to-r from-violet-600/20 to-indigo-600/20 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
+        <div className="relative border-2 border-dashed border-slate-700/50 group-hover:border-violet-500/50 rounded-3xl p-16 text-center bg-gradient-to-br from-slate-900/60 to-slate-800/60 backdrop-blur-xl transition-all duration-300 shadow-xl">
+          <UploadCloud size={56} className="mx-auto text-violet-400 mb-6 group-hover:scale-110 transition-transform" />
+          <p className="text-white font-semibold text-lg mb-2">Click to upload Datasheet</p>
+          <p className="text-slate-400 text-sm">PDF files only</p>
+        </div>
+      </div>
+
+      {/* Files List */}
+      <div className="space-y-4">
+        {files.map((f, i) => (
+          <div
+            key={i}
+            className="relative group"
+          >
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-violet-600/10 to-indigo-600/10 rounded-2xl blur opacity-0 group-hover:opacity-100 transition duration-500"></div>
+            <div className="relative flex items-center justify-between p-5 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl rounded-2xl border border-white/5 group-hover:border-violet-500/30 transition-all shadow-lg">
+              <div className="flex items-center gap-4">
+                <div className={`p-3 rounded-xl ${f.status === 'Active' ? 'bg-violet-500/10' : 'bg-green-500/10'}`}>
+                  <FileText className={`${f.status === 'Active' ? 'text-violet-400' : 'text-green-400'}`} size={24} />
+                </div>
+                <div>
+                  <p className="text-white font-semibold">{f.name}</p>
+                  <p className="text-slate-500 text-sm">{f.size}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className={`text-xs font-bold px-4 py-2 rounded-full font-mono ${f.status === 'Active' ? 'text-violet-400 bg-violet-400/10 border border-violet-500/30' : 'text-green-400 bg-green-400/10 border border-green-500/30'}`}>
+                  {f.status === 'Active' ? "● ACTIVE" : "ANALYZING..."}
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveFile(f.name);
+                    setIsAdmin(true);
+                    setIsLocked(true);
+                    setHasInteracted(true);
+                    setMessages([{ id: Date.now(), type: 'ai', text: `${getGreeting()}. Connected to ${f.name}.` }]);
+                    setView('chat');
+                  }}
+                  className="p-3 text-violet-400 hover:text-white hover:bg-violet-600/20 rounded-xl transition-all border border-transparent hover:border-violet-500/50"
+                >
+                  <Play size={20} />
+                </button>
+                <button
+                  onClick={() => setShowQrFor(f.name)}
+                  className="p-3 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-xl transition-all border border-transparent hover:border-white/10"
+                >
+                  <QrIcon size={20} />
+                </button>
+                <button
+                  onClick={() => handleDeleteFile(f.name)}
+                  className="p-3 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all border border-transparent hover:border-red-500/50"
+                >
+                  <Trash2 size={20} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* QR Code Modal */}
+      {showQrFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl animate-in fade-in">
+          <div className="relative group">
+            <div className="absolute -inset-1 bg-gradient-to-r from-green-600 to-emerald-600 rounded-3xl blur-2xl opacity-50 group-hover:opacity-75 transition duration-500"></div>
+            <div className="relative bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-2xl border-2 border-green-500/50 p-10 rounded-3xl max-w-md w-full text-center shadow-2xl">
+              <button
+                onClick={() => setShowQrFor(null)}
+                className="absolute top-6 right-6 text-slate-400 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-xl"
+              >
+                <X size={24} />
+              </button>
+
+              <div className="mb-8">
+                <span className="text-xs font-bold tracking-[0.3em] text-green-400 uppercase bg-green-500/10 px-4 py-2 rounded-full border border-green-500/30">
+                  TARGET LOCKED
+                </span>
+                <h3 className="text-2xl font-bold text-white mt-6 break-words font-mono">
+                  {showQrFor}
+                </h3>
+              </div>
+
+              <div className="flex justify-center p-6 bg-black/50 backdrop-blur-sm border border-green-500/30 rounded-2xl mb-8 shadow-inner">
+                <QRCode
+                  value={`${CLIENT_URL}/?project=${showQrFor}`}
+                  size={240}
+                  fgColor="#22c55e"
+                  bgColor="transparent"
+                  style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                />
+              </div>
+
+              <p className="text-xs text-green-500/70 font-mono tracking-wider">
+                SCAN_TO_INITIATE_UPLINK
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+);
 
   const renderChat = () => (
     <div className="flex flex-col h-full animate-in slide-in-from-right duration-300 z-10 relative">
@@ -538,13 +783,21 @@ export default function App() {
             )}
           </div>
         </div>
-        <button onClick={handleResetChat} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 rounded-full transition-colors border border-transparent hover:border-red-500/50"><RefreshCw size={18} /></button>
+        <div className="flex items-center gap-2">
+          <select value={selectedVoice} onChange={(e) => changeVoice(e.target.value)} className="bg-slate-800 text-xs text-violet-400 border border-slate-700 rounded px-2 py-1.5 outline-none hover:border-violet-500 transition-colors" title="Select Voice">
+            <option value="ava">🎙️ Ava</option>
+            <option value="jenny">🎙️ Jenny</option>
+            <option value="guy">🎙️ Guy</option>
+            <option value="eric">🎙️ Eric</option>
+          </select>
+          <button onClick={handleResetChat} className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-red-500/20 rounded-full transition-colors border border-transparent hover:border-red-500/50"><RefreshCw size={18} /></button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-4 backdrop-blur-sm ${msg.type === 'user' ? 'bg-violet-600/90 text-white shadow-lg' : 'bg-slate-800/80 text-slate-200 border border-slate-700/50'}`}><p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p></div>
+          <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'} message-enter`}>
+            <div className={`max-w-[85%] rounded-2xl p-4 backdrop-blur-sm ${msg.type === 'user' ? 'message-user' : 'message-ai'}`}><p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.text}</p></div>
           </div>
         ))}
         {isLoading && (<div className="flex justify-center my-4"><div className="flex items-center gap-2 bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700"><div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }}></div><div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div><div className="w-2 h-2 bg-violet-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div></div></div>)}
@@ -577,13 +830,12 @@ export default function App() {
 
       {isListening && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-xl animate-in fade-in pointer-events-none">
-          <div className="relative">
+          <div className="relative recording-pulse">
             <div className="absolute inset-0 bg-red-500 rounded-full blur-xl opacity-30 animate-ping"></div>
             <div className="w-32 h-32 bg-red-600 rounded-full flex items-center justify-center shadow-2xl shadow-red-500/40 animate-pulse"><Mic size={48} className="text-white" /></div>
           </div>
           <h3 className="mt-8 text-2xl font-bold text-white tracking-tight">Listening...</h3>
           <p className="mt-4 text-violet-200/80 text-sm">Release to Send</p>
-          {micConfidence > 0 && <div className="mt-2 text-xs text-green-400 font-mono">Confidence: {micConfidence}%</div>}
         </div>
       )}
     </div>
