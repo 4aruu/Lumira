@@ -15,6 +15,9 @@ from faster_whisper import WhisperModel
 # --- AUTH IMPORTS ---
 from auth import otp_manager, email_service, rate_limiter
 
+# --- ANALYTICS IMPORTS ---
+import analytics
+
 # --- RAG IMPORTS ---
 from langchain_chroma import Chroma
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
@@ -59,6 +62,15 @@ class OTPGenerateRequest(BaseModel):
 class OTPVerifyRequest(BaseModel):
     session_id: str
     otp: str
+
+
+class SessionStartRequest(BaseModel):
+    session_id: str
+    project: str
+
+
+class SessionHeartbeatRequest(BaseModel):
+    session_id: str
 
 
 @app.get("/api/health")
@@ -113,7 +125,11 @@ async def speak(text: str):
 
 
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
+    # Log user message in background (non-blocking)
+    if request.active_file:
+        background_tasks.add_task(analytics.log_message, None, request.active_file, "user")
+        background_tasks.add_task(analytics.log_message, None, request.active_file, "ai")
     return StreamingResponse(
         ask_lumira(request.message, request.active_file),
         media_type="text/plain"
@@ -158,6 +174,30 @@ def delete_file(filename: str):
     except:
         pass
     return {"status": "Deleted"}
+
+
+# --- ANALYTICS ENDPOINTS ---
+
+@app.post("/api/analytics/session/start")
+def analytics_session_start(request: SessionStartRequest):
+    analytics.start_session(request.session_id, request.project)
+    return {"status": "ok"}
+
+
+@app.post("/api/analytics/session/heartbeat")
+def analytics_session_heartbeat(request: SessionHeartbeatRequest):
+    analytics.heartbeat_session(request.session_id)
+    return {"status": "ok"}
+
+
+@app.get("/api/analytics")
+def analytics_all():
+    return analytics.get_all_analytics()
+
+
+@app.get("/api/analytics/{project}")
+def analytics_project(project: str):
+    return analytics.get_project_analytics(project)
 
 
 @app.post("/api/auth/otp/generate")
