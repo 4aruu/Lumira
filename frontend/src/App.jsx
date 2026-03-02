@@ -787,7 +787,7 @@ export default function App() {
             onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08) rotate(-2deg)'; e.currentTarget.style.boxShadow = '16px 16px 36px rgba(0,0,0,0.5), -8px -8px 24px rgba(139,92,246,0.12), inset 0 1px 0 rgba(255,255,255,0.12)'; }}
             onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
           >
-            <img src="/lumira-logo.png" alt="Lumira" style={{ width: '72px', height: '72px', objectFit: 'contain', filter: 'drop-shadow(0 0 24px rgba(139,92,246,0.5))' }} />
+            <img src="/lumira-logo.png" alt="Lumira" style={{ width: '72px', height: '72px', objectFit: 'contain', filter: 'drop-shadow(0 0 2px rgba(139,92,246,0.5))' }} />
           </div>
         </div>
 
