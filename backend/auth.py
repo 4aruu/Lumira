@@ -144,7 +144,7 @@ Lumira Team
 </html>
             """, subtype='html')
 
-            msg['Subject'] = 'Your Lumira Verification Code'
+            msg['Subject'] = 'Your Lumira exhibitor Verification Code'
             msg['From'] = f"Lumira <{self.sender_email}>"
             msg['To'] = receiver_email
 
