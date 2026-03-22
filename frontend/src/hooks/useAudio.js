@@ -3,69 +3,67 @@ import { API_BASE_URL } from '../config';
 
 /**
  * Cross-platform audio playback hook.
- * Uses Web Audio API (AudioContext) for iOS compatibility.
- * iOS Safari blocks HTMLAudioElement.play() when not directly triggered by user gesture,
- * but a resumed AudioContext can play any number of buffers once unlocked.
+ * Uses HTMLAudioElement + Blob URLs so that audio plays through the
+ * device's MEDIA channel (loudspeaker) instead of the COMMUNICATION
+ * channel (earpiece) that AudioContext defaults to on mobile.
+ *
+ * Queue-based: sentences are enqueued and played back-to-back.
  */
 export default function useAudio() {
     const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('lumira_voice') || 'ava');
     const audioQueue = useRef([]);
     const isPlayingAudio = useRef(false);
-    const audioCtxRef = useRef(null);
-    const currentSourceRef = useRef(null);
-
-    /** Get or create AudioContext (lazy init). */
-    const getAudioContext = useCallback(() => {
-        if (!audioCtxRef.current) {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            audioCtxRef.current = new AudioCtx();
-        }
-        // Resume if suspended (iOS suspends by default until user gesture)
-        if (audioCtxRef.current.state === 'suspended') {
-            audioCtxRef.current.resume();
-        }
-        return audioCtxRef.current;
-    }, []);
+    const currentAudioRef = useRef(null);
 
     /** Process the next item in the audio queue. */
-    const processAudioQueue = useCallback(async () => {
+    const processAudioQueue = useCallback(() => {
         if (isPlayingAudio.current || audioQueue.current.length === 0) return;
         isPlayingAudio.current = true;
 
-        const audioData = audioQueue.current.shift();
-        const ctx = getAudioContext();
+        const blobUrl = audioQueue.current.shift();
 
         try {
-            const audioBuffer = await ctx.decodeAudioData(audioData);
-            const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(ctx.destination);
-            currentSourceRef.current = source;
+            const audio = new Audio(blobUrl);
+            currentAudioRef.current = audio;
 
-            source.onended = () => {
+            audio.onended = () => {
+                URL.revokeObjectURL(blobUrl);
                 isPlayingAudio.current = false;
-                currentSourceRef.current = null;
+                currentAudioRef.current = null;
                 processAudioQueue();
             };
 
-            source.start(0);
+            audio.onerror = () => {
+                console.error("Audio playback error");
+                URL.revokeObjectURL(blobUrl);
+                isPlayingAudio.current = false;
+                currentAudioRef.current = null;
+                processAudioQueue();
+            };
+
+            audio.play().catch(() => {
+                URL.revokeObjectURL(blobUrl);
+                isPlayingAudio.current = false;
+                currentAudioRef.current = null;
+                processAudioQueue();
+            });
         } catch (e) {
-            console.error("Audio decode/play error:", e);
+            console.error("Audio create/play error:", e);
+            URL.revokeObjectURL(blobUrl);
             isPlayingAudio.current = false;
-            currentSourceRef.current = null;
-            // Try the next item in queue even if this one failed
+            currentAudioRef.current = null;
             processAudioQueue();
         }
-    }, [getAudioContext]);
+    }, []);
 
     const speakText = useCallback(async (text) => {
         if (!text?.trim()) return;
         try {
             const response = await fetch(`${API_BASE_URL}/api/speak?text=${encodeURIComponent(text)}&voice=${selectedVoice}`);
             if (!response.ok) return;
-            // Get raw ArrayBuffer — needed for decodeAudioData
-            const arrayBuffer = await response.arrayBuffer();
-            audioQueue.current.push(arrayBuffer);
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            audioQueue.current.push(blobUrl);
             processAudioQueue();
         } catch (error) { }
     }, [selectedVoice, processAudioQueue]);
@@ -76,22 +74,28 @@ export default function useAudio() {
     }, []);
 
     const stopAudio = useCallback(() => {
-        if (currentSourceRef.current) {
-            try { currentSourceRef.current.stop(); } catch (_) { }
+        if (currentAudioRef.current) {
+            try {
+                currentAudioRef.current.pause();
+                currentAudioRef.current.src = '';
+            } catch (_) { }
         }
+        // Revoke any queued blob URLs to free memory
+        audioQueue.current.forEach(url => URL.revokeObjectURL(url));
         audioQueue.current = [];
         isPlayingAudio.current = false;
-        currentSourceRef.current = null;
+        currentAudioRef.current = null;
     }, []);
 
     /**
-     * Unlock AudioContext on user gesture.
-     * Call this from any user-initiated event (tap, click, touchstart)
-     * to ensure iOS allows audio playback later.
+     * Unlock audio on user gesture.
+     * Plays a silent Audio element to satisfy iOS autoplay restrictions.
+     * Call from any user-initiated event (tap, click, touchstart).
      */
     const unlockAudio = useCallback(() => {
-        getAudioContext();
-    }, [getAudioContext]);
+        const silence = new Audio("data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRBqmAAAAAAD/+1DEAAAGAAGn9AAAIgAANP8AAABMAAI0BgYGBh4eHDhw4eJiYuXl5+vr7fDw8vj4+v39/v////////////8HBwcPDw8fHx8vLy8/Pz9fX19/f3+fn5/v7+////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//tQxAAAAAADSAAAAAAAAANIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        silence.play().catch(() => { });
+    }, []);
 
     return { speakText, changeVoice, stopAudio, selectedVoice, unlockAudio };
 }

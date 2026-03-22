@@ -164,8 +164,8 @@ const PhoneDemo = () => {
                     {/* Phone frame */}
                     <div style={{
                         position: 'relative',
-                        width: '280px',
-                        height: '580px',
+                        width: '300px',
+                        height: '640px',
                         borderRadius: '44px',
                         background: 'linear-gradient(145deg, #1a1a2e 0%, #0f0f1a 100%)',
                         padding: '12px',

@@ -7,6 +7,7 @@ import LandingPage from './components/LandingPage';
 import ExhibitorLogin from './components/ExhibitorLogin';
 import Dashboard from './components/Dashboard';
 import ChatView from './components/ChatView';
+import DatasetNotFound from './components/DatasetNotFound';
 
 // --- Hooks ---
 import useAudio from './hooks/useAudio';
@@ -24,6 +25,7 @@ export default function App() {
   const [files, setFiles] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [showQrFor, setShowQrFor] = useState(null);
+  const [errorProject, setErrorProject] = useState(null);
 
   // --- Analytics State ---
   const [analyticsData, setAnalyticsData] = useState(null);
@@ -82,17 +84,33 @@ export default function App() {
       .replace(/\b\w/g, c => c.toUpperCase());
   };
 
-  // --- QR Scan Detection ---
+  // --- QR Scan Detection (with validation) ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const projectParam = params.get('project');
 
     if (projectParam) {
-      setIsLocked(true);
-      setActiveFile(projectParam);
-      setMessages([{ id: 1, type: 'ai', text: `${getGreeting()}! I'm your AI assistant for ${cleanProductName(projectParam)}. Tap to start.` }]);
-      setView('chat');
-      startAnalyticsSession(projectParam);
+      // Validate dataset exists before opening chat
+      fetch(`${API_BASE_URL}/api/files/${encodeURIComponent(projectParam)}/exists`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.exists) {
+            setIsLocked(true);
+            setActiveFile(projectParam);
+            setMessages([{ id: 1, type: 'ai', text: `${getGreeting()}! I'm your AI assistant for ${cleanProductName(projectParam)}. Tap to start.` }]);
+            setView('chat');
+            startAnalyticsSession(projectParam);
+          } else {
+            // Dataset was deleted — show error
+            setErrorProject(projectParam);
+            setView('error');
+          }
+        })
+        .catch(() => {
+          // Server unreachable — show error
+          setErrorProject(projectParam);
+          setView('error');
+        });
     } else {
       setMessages([{ id: 1, type: 'ai', text: `${getGreeting()}! I am Lumira. Upload a PDF or scan a QR to begin.` }]);
       setHasInteracted(true);
@@ -126,15 +144,41 @@ export default function App() {
   };
 
   const handleDeleteFile = async (filename) => {
-    if (!confirm(`Delete "${filename}"?`)) return;
-    setFiles(prev => prev.filter(f => f.name !== filename));
-    try { await fetch(`${API_BASE_URL}/api/files/${filename}`, { method: 'DELETE' }); }
-    catch (error) { fetchUploadedFiles(); }
+    if (!confirm(`Delete "${filename}"? This will invalidate any QR codes for this dataset.`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/files/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        alert(`Failed to delete: ${err.detail || res.statusText}`);
+        return;
+      }
+      // Only remove from UI after backend confirms
+      setFiles(prev => prev.filter(f => f.name !== filename));
+    } catch (error) {
+      alert('Network error. Could not delete file.');
+      fetchUploadedFiles();
+    }
   };
 
   const handleFileSelect = async (event) => {
     const file = event.target.files[0];
-    if (!file || file.type !== 'application/pdf') return alert("PDF only.");
+    if (!file) return;
+    if (file.type !== 'application/pdf') return alert("Only PDF files are allowed.");
+
+    // Check for duplicates on the client side first
+    if (files.some(f => f.name === file.name)) {
+      if (!confirm(`"${file.name}" already exists. Do you want to delete the old one and re-upload?`)) return;
+      // Delete old file first
+      try {
+        await fetch(`${API_BASE_URL}/api/files/${encodeURIComponent(file.name)}`, { method: 'DELETE' });
+      } catch { /* proceed anyway, server will reject if still exists */ }
+    }
+
+    // Check file size client-side (50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      return alert(`File too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum is 50 MB.`);
+    }
+
     const formData = new FormData();
     formData.append("file", file);
 
@@ -144,20 +188,32 @@ export default function App() {
     try {
       setTimeout(() => setFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: "ENCRYPTING..." } : f)), 800);
       const response = await fetch(`${API_BASE_URL}/api/upload`, { method: 'POST', body: formData });
-      if (!response.ok) throw new Error("Upload failed");
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Upload failed' }));
+        throw new Error(err.detail || `Upload failed (${response.status})`);
+      }
       setFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: "Active" } : f));
       fetchUploadedFiles();
       alert(`Success! Lumira is learning from "${file.name}".`);
     } catch (error) {
-      alert("Upload failed.");
+      alert(error.message || "Upload failed.");
       setFiles(prev => prev.filter(f => f.name !== file.name));
     }
   };
 
   // --- Voice Upload ---
   const handleVoiceUpload = async (audioBlob, ext = 'webm') => {
+    // --- Accidental tap: blob is null when recording was too short ---
+    if (!audioBlob) {
+      // Show a brief hint in the chat instead of transcribing noise
+      setMessages(prev => [...prev, {
+        id: Date.now(), type: 'ai',
+        text: '💡 Hold the mic button while speaking, then release to send.'
+      }]);
+      return;
+    }
+
     setIsLoading(true);
-    setTextInput("Processing Voice...");
     // Unlock AudioContext so the TTS response can play back
     unlockAudio();
     try {
@@ -182,12 +238,10 @@ export default function App() {
         sendMessageToBackend(data.text);
       } else {
         console.warn("STT returned empty text");
-        setTextInput("");
         setIsLoading(false);
       }
     } catch (e) {
       console.error("STT Error:", e);
-      setTextInput("");
       setIsLoading(false);
       if (e.name === 'AbortError') {
         alert("Voice processing timed out (60s). Please try again with a shorter message.");
@@ -226,6 +280,24 @@ export default function App() {
         body: JSON.stringify({ message: textToSend, active_file: activeFile }),
         signal: signal
       });
+
+      // --- Handle dataset-deleted-mid-conversation ---
+      if (response.status === 404) {
+        setMessages(prev => prev.map(msg => msg.id === aiMsgId
+          ? { ...msg, text: '⚠️ This dataset has been deleted. Please scan a new QR code or go back.' }
+          : msg
+        ));
+        return;
+      }
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Server error' }));
+        setMessages(prev => prev.map(msg => msg.id === aiMsgId
+          ? { ...msg, text: `⚠️ ${err.detail || 'Something went wrong.'}` }
+          : msg
+        ));
+        return;
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -278,10 +350,20 @@ export default function App() {
   };
 
   const handleStartRecording = (e) => {
-    setTextInput("🎤 Listening...");
     unlockAudio(); // Mic press is a user gesture — unlock AudioContext for iOS TTS
     startRecording(e);
   };
+
+  // --- QR Tab Cleanup: clear URL params when visitor leaves ---
+  useEffect(() => {
+    if (!isLocked || isAdmin) return; // Only for QR-scanned visitor sessions
+    const onBeforeUnload = () => {
+      // Stop analytics heartbeat
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isLocked, isAdmin]);
 
   const handleNavigateBack = () => {
     isAdmin ? setView('exhibitor-dash') : setView('landing');
@@ -295,6 +377,12 @@ export default function App() {
         <div className="absolute -bottom-[10%] -right-[10%] w-[50%] h-[50%] rounded-full bg-indigo-600/20 blur-[120px] animate-blob animation-delay-2000" />
       </div>
       {view === 'landing' && <LandingPage onNavigate={setView} />}
+      {view === 'error' && (
+        <DatasetNotFound
+          projectName={errorProject}
+          onGoHome={() => { setErrorProject(null); setView('landing'); window.history.replaceState({}, '', '/'); }}
+        />
+      )}
       {view === 'exhibitor-login' && (
         <ExhibitorLogin
           onNavigate={setView}

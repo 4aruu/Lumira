@@ -39,6 +39,10 @@ export default function useRecorder() {
     const streamRef = useRef(null);
     const onRecordCompleteRef = useRef(null);
     const mimeTypeRef = useRef('');
+    const recordStartTimeRef = useRef(null);
+
+    // Minimum recording duration (ms) to avoid accidental taps
+    const MIN_RECORD_MS = 500;
 
     // No eager mic warmup — iOS blocks getUserMedia before user gesture.
     // Mic is acquired lazily on first startRecording call.
@@ -68,6 +72,16 @@ export default function useRecorder() {
             };
 
             mediaRecorderRef.current.onstop = async () => {
+                // Check if recording was too short (accidental tap)
+                const elapsed = Date.now() - (recordStartTimeRef.current || 0);
+                if (elapsed < MIN_RECORD_MS) {
+                    // Signal accidental tap — pass null so caller can show hint
+                    if (onRecordCompleteRef.current) {
+                        onRecordCompleteRef.current(null, null);
+                    }
+                    return;
+                }
+
                 // Use the actual MIME type that was recorded, not a hardcoded one
                 const actualMime = mimeTypeRef.current || 'audio/webm';
                 const ext = getExtensionForMime(actualMime);
@@ -80,6 +94,7 @@ export default function useRecorder() {
             };
 
             mediaRecorderRef.current.start(100);
+            recordStartTimeRef.current = Date.now();
             setIsListening(true);
         } catch (err) {
             console.error("Mic Error", err);

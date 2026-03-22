@@ -13,6 +13,16 @@ import analytics
 
 router = APIRouter()
 
+# --- Helpers ---
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _dataset_exists(filename: str) -> bool:
+    """Check if a dataset file exists on disk."""
+    if not filename:
+        return True  # No filter = global chat, always allowed
+    return os.path.isfile(os.path.join(_BASE_DIR, "Dataset", filename))
+
 
 @router.post("/api/stt")
 async def speech_to_text(file: UploadFile = File(...)):
@@ -51,12 +61,19 @@ async def speech_to_text(file: UploadFile = File(...)):
 
 
 @router.get("/api/speak")
-async def speak(text: str):
-    return await tts_speak(text)
+async def speak(text: str, voice: str | None = None):
+    return await tts_speak(text, voice)
 
 
 @router.post("/api/chat")
 async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks):
+    # --- Validate dataset still exists ---
+    if request.active_file and not _dataset_exists(request.active_file):
+        raise HTTPException(
+            404,
+            f"Dataset \"{request.active_file}\" no longer exists. It may have been deleted."
+        )
+
     # Log user message in background (non-blocking)
     if request.active_file:
         background_tasks.add_task(analytics.log_message, None, request.active_file, "user")
