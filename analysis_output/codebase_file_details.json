@@ -1,0 +1,562 @@
+[
+  {
+    "file": "analysis_log.txt",
+    "component": "Project Root",
+    "language": "Text",
+    "total_lines": 0,
+    "code_lines": 0,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.0
+  },
+  {
+    "file": "performance_analysis.py",
+    "component": "Project Root",
+    "language": "Python",
+    "total_lines": 788,
+    "code_lines": 597,
+    "comment_lines": 66,
+    "blank_lines": 125,
+    "size_kb": 31.39
+  },
+  {
+    "file": "README.md",
+    "component": "Project Root",
+    "language": "Markdown",
+    "total_lines": 99,
+    "code_lines": 59,
+    "comment_lines": 0,
+    "blank_lines": 40,
+    "size_kb": 2.03
+  },
+  {
+    "file": "analysis_output\\analytics_summary.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 15,
+    "code_lines": 15,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.32
+  },
+  {
+    "file": "analysis_output\\api_summary.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 101,
+    "code_lines": 101,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 2.28
+  },
+  {
+    "file": "analysis_output\\architecture_complexity_summary.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 96,
+    "code_lines": 96,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 1.3
+  },
+  {
+    "file": "analysis_output\\codebase_file_details.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 512,
+    "code_lines": 512,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 12.11
+  },
+  {
+    "file": "analysis_output\\codebase_summary.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 125,
+    "code_lines": 125,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 2.36
+  },
+  {
+    "file": "analysis_output\\dataset_summary.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 19,
+    "code_lines": 19,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.35
+  },
+  {
+    "file": "analysis_output\\dependencies_overview.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 13,
+    "code_lines": 13,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.26
+  },
+  {
+    "file": "analysis_output\\master_report.json",
+    "component": "Project Root",
+    "language": "JSON Config",
+    "total_lines": 375,
+    "code_lines": 375,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 8.55
+  },
+  {
+    "file": "backend\\analytics.py",
+    "component": "Backend / Core",
+    "language": "Python",
+    "total_lines": 211,
+    "code_lines": 158,
+    "comment_lines": 14,
+    "blank_lines": 39,
+    "size_kb": 6.69
+  },
+  {
+    "file": "backend\\auth.py",
+    "component": "Backend / Core",
+    "language": "Python",
+    "total_lines": 202,
+    "code_lines": 142,
+    "comment_lines": 16,
+    "blank_lines": 44,
+    "size_kb": 6.3
+  },
+  {
+    "file": "backend\\bot.py",
+    "component": "Backend / Core",
+    "language": "Python",
+    "total_lines": 489,
+    "code_lines": 342,
+    "comment_lines": 51,
+    "blank_lines": 96,
+    "size_kb": 17.06
+  },
+  {
+    "file": "backend\\ingest.py",
+    "component": "Backend / Core",
+    "language": "Python",
+    "total_lines": 54,
+    "code_lines": 32,
+    "comment_lines": 10,
+    "blank_lines": 12,
+    "size_kb": 1.89
+  },
+  {
+    "file": "backend\\main.py",
+    "component": "Backend / Core",
+    "language": "Python",
+    "total_lines": 52,
+    "code_lines": 37,
+    "comment_lines": 5,
+    "blank_lines": 10,
+    "size_kb": 1.47
+  },
+  {
+    "file": "backend\\requirements.txt",
+    "component": "Backend / Core",
+    "language": "Text",
+    "total_lines": 116,
+    "code_lines": 116,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 4.6
+  },
+  {
+    "file": "backend\\models\\schemas.py",
+    "component": "Backend / Models",
+    "language": "Python",
+    "total_lines": 24,
+    "code_lines": 14,
+    "comment_lines": 0,
+    "blank_lines": 10,
+    "size_kb": 0.39
+  },
+  {
+    "file": "backend\\models\\__init__.py",
+    "component": "Backend / Models",
+    "language": "Python",
+    "total_lines": 0,
+    "code_lines": 0,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.0
+  },
+  {
+    "file": "backend\\routes\\analytics_routes.py",
+    "component": "Backend / Routes",
+    "language": "Python",
+    "total_lines": 45,
+    "code_lines": 30,
+    "comment_lines": 2,
+    "blank_lines": 13,
+    "size_kb": 1.3
+  },
+  {
+    "file": "backend\\routes\\auth_routes.py",
+    "component": "Backend / Routes",
+    "language": "Python",
+    "total_lines": 23,
+    "code_lines": 17,
+    "comment_lines": 0,
+    "blank_lines": 6,
+    "size_kb": 0.9
+  },
+  {
+    "file": "backend\\routes\\chat.py",
+    "component": "Backend / Routes",
+    "language": "Python",
+    "total_lines": 84,
+    "code_lines": 59,
+    "comment_lines": 8,
+    "blank_lines": 17,
+    "size_kb": 3.08
+  },
+  {
+    "file": "backend\\routes\\files.py",
+    "component": "Backend / Routes",
+    "language": "Python",
+    "total_lines": 131,
+    "code_lines": 92,
+    "comment_lines": 12,
+    "blank_lines": 27,
+    "size_kb": 4.45
+  },
+  {
+    "file": "backend\\routes\\health.py",
+    "component": "Backend / Routes",
+    "language": "Python",
+    "total_lines": 8,
+    "code_lines": 5,
+    "comment_lines": 0,
+    "blank_lines": 3,
+    "size_kb": 0.15
+  },
+  {
+    "file": "backend\\routes\\__init__.py",
+    "component": "Backend / Routes",
+    "language": "Python",
+    "total_lines": 0,
+    "code_lines": 0,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.0
+  },
+  {
+    "file": "backend\\services\\stt_service.py",
+    "component": "Backend / Services",
+    "language": "Python",
+    "total_lines": 15,
+    "code_lines": 9,
+    "comment_lines": 4,
+    "blank_lines": 2,
+    "size_kb": 0.5
+  },
+  {
+    "file": "backend\\services\\tts_service.py",
+    "component": "Backend / Services",
+    "language": "Python",
+    "total_lines": 83,
+    "code_lines": 54,
+    "comment_lines": 10,
+    "blank_lines": 19,
+    "size_kb": 2.8
+  },
+  {
+    "file": "backend\\services\\__init__.py",
+    "component": "Backend / Services",
+    "language": "Python",
+    "total_lines": 0,
+    "code_lines": 0,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.0
+  },
+  {
+    "file": "backend\\Utils\\pdfvectorising.py",
+    "component": "Backend / Utils",
+    "language": "Python",
+    "total_lines": 35,
+    "code_lines": 20,
+    "comment_lines": 6,
+    "blank_lines": 9,
+    "size_kb": 1.09
+  },
+  {
+    "file": "frontend\\eslint.config.js",
+    "component": "Frontend / Core",
+    "language": "JavaScript",
+    "total_lines": 29,
+    "code_lines": 28,
+    "comment_lines": 0,
+    "blank_lines": 1,
+    "size_kb": 0.77
+  },
+  {
+    "file": "frontend\\index.html",
+    "component": "Frontend / Core",
+    "language": "HTML",
+    "total_lines": 13,
+    "code_lines": 13,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.39
+  },
+  {
+    "file": "frontend\\package-lock.json",
+    "component": "Frontend / Core",
+    "language": "JSON Config",
+    "total_lines": 4050,
+    "code_lines": 4050,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 139.94
+  },
+  {
+    "file": "frontend\\package.json",
+    "component": "Frontend / Core",
+    "language": "JSON Config",
+    "total_lines": 35,
+    "code_lines": 35,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.88
+  },
+  {
+    "file": "frontend\\postcss.config.js",
+    "component": "Frontend / Core",
+    "language": "JavaScript",
+    "total_lines": 6,
+    "code_lines": 6,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.08
+  },
+  {
+    "file": "frontend\\README.md",
+    "component": "Frontend / Core",
+    "language": "Markdown",
+    "total_lines": 12,
+    "code_lines": 5,
+    "comment_lines": 2,
+    "blank_lines": 5,
+    "size_kb": 0.85
+  },
+  {
+    "file": "frontend\\tailwind.config.js",
+    "component": "Frontend / Core",
+    "language": "JavaScript",
+    "total_lines": 42,
+    "code_lines": 41,
+    "comment_lines": 1,
+    "blank_lines": 0,
+    "size_kb": 1.26
+  },
+  {
+    "file": "frontend\\vite.config.js",
+    "component": "Frontend / Core",
+    "language": "JavaScript",
+    "total_lines": 15,
+    "code_lines": 13,
+    "comment_lines": 1,
+    "blank_lines": 1,
+    "size_kb": 0.3
+  },
+  {
+    "file": "frontend\\src\\App.css",
+    "component": "Frontend / Core",
+    "language": "CSS",
+    "total_lines": 42,
+    "code_lines": 36,
+    "comment_lines": 1,
+    "blank_lines": 5,
+    "size_kb": 0.63
+  },
+  {
+    "file": "frontend\\src\\App.jsx",
+    "component": "Frontend / Core",
+    "language": "React (JSX)",
+    "total_lines": 433,
+    "code_lines": 354,
+    "comment_lines": 33,
+    "blank_lines": 46,
+    "size_kb": 15.98
+  },
+  {
+    "file": "frontend\\src\\config.js",
+    "component": "Frontend / Core",
+    "language": "JavaScript",
+    "total_lines": 2,
+    "code_lines": 2,
+    "comment_lines": 0,
+    "blank_lines": 0,
+    "size_kb": 0.08
+  },
+  {
+    "file": "frontend\\src\\index.css",
+    "component": "Frontend / Core",
+    "language": "CSS",
+    "total_lines": 19,
+    "code_lines": 16,
+    "comment_lines": 1,
+    "blank_lines": 2,
+    "size_kb": 0.36
+  },
+  {
+    "file": "frontend\\src\\main.jsx",
+    "component": "Frontend / Core",
+    "language": "React (JSX)",
+    "total_lines": 10,
+    "code_lines": 9,
+    "comment_lines": 0,
+    "blank_lines": 1,
+    "size_kb": 0.23
+  },
+  {
+    "file": "frontend\\src\\components\\AnimatedQR.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 442,
+    "code_lines": 364,
+    "comment_lines": 29,
+    "blank_lines": 49,
+    "size_kb": 18.22
+  },
+  {
+    "file": "frontend\\src\\components\\Button.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 17,
+    "code_lines": 15,
+    "comment_lines": 0,
+    "blank_lines": 2,
+    "size_kb": 1.04
+  },
+  {
+    "file": "frontend\\src\\components\\ChatView.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 304,
+    "code_lines": 292,
+    "comment_lines": 0,
+    "blank_lines": 12,
+    "size_kb": 21.54
+  },
+  {
+    "file": "frontend\\src\\components\\CornerLights.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 41,
+    "code_lines": 39,
+    "comment_lines": 0,
+    "blank_lines": 2,
+    "size_kb": 2.0
+  },
+  {
+    "file": "frontend\\src\\components\\Dashboard.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 270,
+    "code_lines": 253,
+    "comment_lines": 0,
+    "blank_lines": 17,
+    "size_kb": 18.32
+  },
+  {
+    "file": "frontend\\src\\components\\DatasetNotFound.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 89,
+    "code_lines": 81,
+    "comment_lines": 0,
+    "blank_lines": 8,
+    "size_kb": 4.63
+  },
+  {
+    "file": "frontend\\src\\components\\ExhibitorLogin.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 142,
+    "code_lines": 130,
+    "comment_lines": 0,
+    "blank_lines": 12,
+    "size_kb": 7.98
+  },
+  {
+    "file": "frontend\\src\\components\\IntroSection.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 257,
+    "code_lines": 241,
+    "comment_lines": 0,
+    "blank_lines": 16,
+    "size_kb": 10.78
+  },
+  {
+    "file": "frontend\\src\\components\\LandingPage.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 210,
+    "code_lines": 196,
+    "comment_lines": 0,
+    "blank_lines": 14,
+    "size_kb": 15.15
+  },
+  {
+    "file": "frontend\\src\\components\\MouseGlow.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 20,
+    "code_lines": 18,
+    "comment_lines": 0,
+    "blank_lines": 2,
+    "size_kb": 0.89
+  },
+  {
+    "file": "frontend\\src\\components\\PhoneDemo.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 348,
+    "code_lines": 334,
+    "comment_lines": 0,
+    "blank_lines": 14,
+    "size_kb": 14.75
+  },
+  {
+    "file": "frontend\\src\\components\\WaterFlow.jsx",
+    "component": "Frontend / Components",
+    "language": "React (JSX)",
+    "total_lines": 13,
+    "code_lines": 11,
+    "comment_lines": 0,
+    "blank_lines": 2,
+    "size_kb": 0.31
+  },
+  {
+    "file": "frontend\\src\\hooks\\useAudio.js",
+    "component": "Frontend / Hooks",
+    "language": "JavaScript",
+    "total_lines": 164,
+    "code_lines": 115,
+    "comment_lines": 31,
+    "blank_lines": 18,
+    "size_kb": 7.0
+  },
+  {
+    "file": "frontend\\src\\hooks\\useRecorder.js",
+    "component": "Frontend / Hooks",
+    "language": "JavaScript",
+    "total_lines": 119,
+    "code_lines": 86,
+    "comment_lines": 17,
+    "blank_lines": 16,
+    "size_kb": 4.46
+  }
+]

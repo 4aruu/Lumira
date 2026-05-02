@@ -9,6 +9,7 @@ from models.schemas import ChatRequest
 from services.stt_service import stt_model, inference_lock
 from services.tts_service import speak as tts_speak
 from bot import ask_lumira
+from routes.files import _is_qr_active
 import analytics
 
 router = APIRouter()
@@ -74,11 +75,18 @@ async def chat_endpoint(request: ChatRequest, background_tasks: BackgroundTasks)
             f"Dataset \"{request.active_file}\" no longer exists. It may have been deleted."
         )
 
+    # --- Check QR is active (exhibitor hasn't disabled it) ---
+    if request.active_file and not _is_qr_active(request.active_file):
+        raise HTTPException(
+            403,
+            "This project's QR has been deactivated by the exhibitor. The bot is currently offline for this project."
+        )
+
     # Log user message in background (non-blocking)
     if request.active_file:
-        background_tasks.add_task(analytics.log_message, None, request.active_file, "user")
-        background_tasks.add_task(analytics.log_message, None, request.active_file, "ai")
+        background_tasks.add_task(analytics.log_message, request.session_id, request.active_file, "user")
+        background_tasks.add_task(analytics.log_message, request.session_id, request.active_file, "ai")
     return StreamingResponse(
-        ask_lumira(request.message, request.active_file),
+        ask_lumira(request.message, request.active_file, session_id=request.session_id),
         media_type="text/plain"
     )

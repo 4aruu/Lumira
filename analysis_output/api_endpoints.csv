@@ -1,0 +1,15 @@
+Method,Path,Function,File,Category,Has Auth
+POST,/api/analytics/session/start,analytics_session_start,analytics_routes.py,Analytics,False
+POST,/api/analytics/session/heartbeat,analytics_session_heartbeat,analytics_routes.py,Analytics,False
+GET,/api/analytics,analytics_all,analytics_routes.py,Analytics,False
+GET,/api/analytics/{project},analytics_project,analytics_routes.py,Analytics,False
+POST,/api/auth/otp/generate,generate_otp,auth_routes.py,Authentication,True
+POST,/api/auth/otp/verify,verify_otp,auth_routes.py,Authentication,True
+POST,/api/stt,speech_to_text,chat.py,Chat / Voice,False
+GET,/api/speak,speak,chat.py,Chat / Voice,False
+POST,/api/chat,chat_endpoint,chat.py,Chat / Voice,False
+GET,/api/files/{filename}/exists,check_file_exists,files.py,File Management,False
+POST,/api/upload,upload_file,files.py,File Management,False
+GET,/api/files,list_files,files.py,File Management,False
+DELETE,/api/files/{filename},delete_file,files.py,File Management,False
+GET,/api/health,read_health,health.py,Health Check,False

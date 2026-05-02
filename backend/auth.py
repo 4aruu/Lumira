@@ -147,7 +147,6 @@ Lumira Team
             msg['Subject'] = 'Your Lumira exhibitor Verification Code'
             msg['From'] = f"Lumira <{self.sender_email}>"
             msg['To'] = receiver_email
-
             # Send email via Gmail SMTP
             with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port) as smtp:
                 smtp.login(self.sender_email, self.sender_password)

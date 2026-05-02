@@ -2,99 +2,151 @@ import { useRef, useCallback, useState } from 'react';
 import { API_BASE_URL } from '../config';
 
 /**
- * Cross-platform audio playback hook.
- * Uses HTMLAudioElement + Blob URLs so that audio plays through the
- * device's MEDIA channel (loudspeaker) instead of the COMMUNICATION
- * channel (earpiece) that AudioContext defaults to on mobile.
+ * useAudio — cross-platform TTS playback hook.
  *
- * Queue-based: sentences are enqueued and played back-to-back.
+ * Architecture: pipelined fetch + sequential playback.
+ *
+ *   When speakText(sentence) is called, TWO things happen simultaneously:
+ *
+ *   1. FETCH starts IMMEDIATELY — the audio is fetched and decoded in parallel
+ *      with the previous sentence still playing.
+ *
+ *   2. PLAYBACK is CHAINED — the playback chain waits for the previous sentence
+ *      to finish, then plays this one as soon as its buffer is ready.
+ *
+ *   This eliminates the network round-trip gap between sentences.
+ *   Instead of:   play1 → fetch2 → decode2 → play2 → fetch3 → ...
+ *   We get:       play1        → play2        → play3
+ *                 fetch2+dec2 ↗  fetch3+dec3 ↗
+ *
+ * Mobile compatibility:
+ *   Uses AudioContext (not HTMLAudioElement). Once resume() is called inside
+ *   a user gesture it stays permanently unlocked, so async playback works on
+ *   iOS Safari and Android Chrome without restriction.
+ *
+ * Generation counter:
+ *   stopAudio() bumps generationRef. Any in-flight fetch or queued playback
+ *   that sees a generation mismatch exits silently — no phantom restarts.
  */
 export default function useAudio() {
-    const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('lumira_voice') || 'ava');
-    const audioQueue = useRef([]);
-    const isPlayingAudio = useRef(false);
-    const currentAudioRef = useRef(null);
+    const [selectedVoice, setSelectedVoice] = useState(
+        () => localStorage.getItem('lumira_voice') || 'ava'
+    );
 
-    /** Process the next item in the audio queue. */
-    const processAudioQueue = useCallback(() => {
-        if (isPlayingAudio.current || audioQueue.current.length === 0) return;
-        isPlayingAudio.current = true;
+    // Shared AudioContext — created lazily, resumed once inside a user gesture.
+    const ctxRef = useRef(null);
 
-        const blobUrl = audioQueue.current.shift();
+    // Playback chain: each sentence appends to this so they play in order.
+    const playTailRef = useRef(Promise.resolve());
 
-        try {
-            const audio = new Audio(blobUrl);
-            currentAudioRef.current = audio;
+    // Currently playing source node — kept so stopAudio() can stop it instantly.
+    const currentSourceRef = useRef(null);
 
-            audio.onended = () => {
-                URL.revokeObjectURL(blobUrl);
-                isPlayingAudio.current = false;
-                currentAudioRef.current = null;
-                processAudioQueue();
-            };
+    // Generation counter — bumped on stopAudio() to discard stale work.
+    const generationRef = useRef(0);
 
-            audio.onerror = () => {
-                console.error("Audio playback error");
-                URL.revokeObjectURL(blobUrl);
-                isPlayingAudio.current = false;
-                currentAudioRef.current = null;
-                processAudioQueue();
-            };
-
-            audio.play().catch(() => {
-                URL.revokeObjectURL(blobUrl);
-                isPlayingAudio.current = false;
-                currentAudioRef.current = null;
-                processAudioQueue();
-            });
-        } catch (e) {
-            console.error("Audio create/play error:", e);
-            URL.revokeObjectURL(blobUrl);
-            isPlayingAudio.current = false;
-            currentAudioRef.current = null;
-            processAudioQueue();
+    /** Return the shared AudioContext, creating + resuming it if needed. */
+    const _getCtx = useCallback(() => {
+        if (!ctxRef.current) {
+            ctxRef.current = new (window.AudioContext || window.webkitAudioContext)();
         }
+        if (ctxRef.current.state === 'suspended') {
+            ctxRef.current.resume().catch(() => { });
+        }
+        return ctxRef.current;
     }, []);
 
-    const speakText = useCallback(async (text) => {
-        if (!text?.trim()) return;
+    /**
+     * unlockAudio — call synchronously inside the first user gesture.
+     * Resumes the AudioContext and plays one silent frame so that Safari
+     * permits all future async audio output.
+     */
+    const unlockAudio = useCallback(() => {
+        const ctx = _getCtx();
         try {
-            const response = await fetch(`${API_BASE_URL}/api/speak?text=${encodeURIComponent(text)}&voice=${selectedVoice}`);
-            if (!response.ok) return;
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            audioQueue.current.push(blobUrl);
-            processAudioQueue();
-        } catch (error) { }
-    }, [selectedVoice, processAudioQueue]);
+            const buf = ctx.createBuffer(1, 1, 22050);
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(ctx.destination);
+            src.start(0);
+        } catch (_) { }
+    }, [_getCtx]);
+
+    /**
+     * speakText — enqueue a sentence for TTS playback.
+     *
+     * The fetch + decode starts IMMEDIATELY (parallel with previous playback).
+     * The playback waits in the chain for its turn, but by then the buffer is
+     * usually already ready — so sentences flow without gaps.
+     */
+    const speakText = useCallback((text) => {
+        if (!text?.trim()) return;
+
+        const myGeneration = generationRef.current;
+
+        // ── Step 1: Start fetching NOW, in parallel with whatever is playing ──
+        const bufferPromise = (async () => {
+            try {
+                const ctx = _getCtx();
+                const res = await fetch(
+                    `${API_BASE_URL}/api/speak?text=${encodeURIComponent(text)}&voice=${selectedVoice}`
+                );
+                if (!res.ok || generationRef.current !== myGeneration) return null;
+
+                const arrayBuffer = await res.arrayBuffer();
+                if (generationRef.current !== myGeneration) return null;
+
+                const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+                if (generationRef.current !== myGeneration) return null;
+
+                return audioBuffer;
+            } catch (_) {
+                return null;
+            }
+        })();
+
+        // ── Step 2: Chain the PLAYBACK — wait for previous to finish, then play ──
+        playTailRef.current = playTailRef.current.then(async () => {
+            if (generationRef.current !== myGeneration) return;
+
+            const audioBuffer = await bufferPromise;
+            if (!audioBuffer || generationRef.current !== myGeneration) return;
+
+            await new Promise((resolve) => {
+                if (generationRef.current !== myGeneration) { resolve(); return; }
+
+                const ctx = _getCtx();
+                const source = ctx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(ctx.destination);
+                currentSourceRef.current = source;
+
+                source.onended = () => {
+                    currentSourceRef.current = null;
+                    resolve();
+                };
+
+                source.start(0);
+            });
+        });
+    }, [selectedVoice, _getCtx]);
+
+    /** Stop playback immediately and discard all queued sentences. */
+    const stopAudio = useCallback(() => {
+        generationRef.current += 1;
+
+        if (currentSourceRef.current) {
+            try { currentSourceRef.current.stop(); } catch (_) { }
+            currentSourceRef.current = null;
+        }
+
+        // Reset the playback chain — future sentences start fresh.
+        playTailRef.current = Promise.resolve();
+    }, []);
 
     const changeVoice = useCallback((voice) => {
         setSelectedVoice(voice);
         localStorage.setItem('lumira_voice', voice);
-    }, []);
-
-    const stopAudio = useCallback(() => {
-        if (currentAudioRef.current) {
-            try {
-                currentAudioRef.current.pause();
-                currentAudioRef.current.src = '';
-            } catch (_) { }
-        }
-        // Revoke any queued blob URLs to free memory
-        audioQueue.current.forEach(url => URL.revokeObjectURL(url));
-        audioQueue.current = [];
-        isPlayingAudio.current = false;
-        currentAudioRef.current = null;
-    }, []);
-
-    /**
-     * Unlock audio on user gesture.
-     * Plays a silent Audio element to satisfy iOS autoplay restrictions.
-     * Call from any user-initiated event (tap, click, touchstart).
-     */
-    const unlockAudio = useCallback(() => {
-        const silence = new Audio("data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRBqmAAAAAAD/+1DEAAAGAAGn9AAAIgAANP8AAABMAAI0BgYGBh4eHDhw4eJiYuXl5+vr7fDw8vj4+v39/v////////////8HBwcPDw8fHx8vLy8/Pz9fX19/f3+fn5/v7+////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//tQxAAAAAADSAAAAAAAAANIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-        silence.play().catch(() => { });
     }, []);
 
     return { speakText, changeVoice, stopAudio, selectedVoice, unlockAudio };

@@ -1,0 +1,19 @@
+{
+  "total_datasets": 2,
+  "datasets": [
+    {
+      "name": "InfoBotDataset.pdf",
+      "size_kb": 197.83
+    },
+    {
+      "name": "NutriSwapDataset.pdf",
+      "size_kb": 120.79
+    }
+  ],
+  "storage_kb": {
+    "Dataset Files": 318.62,
+    "ChromaDB Vector Store": 3456.32,
+    "Analytics Database": 88.0
+  },
+  "total_storage_kb": 3862.94
+}

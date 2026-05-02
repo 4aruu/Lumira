@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { API_BASE_URL } from './config';
 
 // --- Components ---
@@ -8,6 +8,8 @@ import ExhibitorLogin from './components/ExhibitorLogin';
 import Dashboard from './components/Dashboard';
 import ChatView from './components/ChatView';
 import DatasetNotFound from './components/DatasetNotFound';
+import ThankYou from './components/ThankYou';
+import QrUnavailable from './components/QrUnavailable';
 
 // --- Hooks ---
 import useAudio from './hooks/useAudio';
@@ -26,6 +28,17 @@ export default function App() {
   const [activeFile, setActiveFile] = useState(null);
   const [showQrFor, setShowQrFor] = useState(null);
   const [errorProject, setErrorProject] = useState(null);
+  const [errorReason, setErrorReason] = useState(null);  // 'inactive' | 'destroyed' | null
+
+  // --- Toast Notifications ---
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
+
+  const showToast = useCallback((message, type = 'error') => {
+    const id = ++toastIdRef.current;
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
+  }, []);
 
   // --- Analytics State ---
   const [analyticsData, setAnalyticsData] = useState(null);
@@ -37,7 +50,7 @@ export default function App() {
 
   // --- Custom Hooks ---
   const { speakText, stopAudio, unlockAudio } = useAudio();
-  const { isListening, startRecording, stopRecording, setOnRecordComplete } = useRecorder();
+  const { isListening, startRecording, stopRecording, cancelRecording, setOnRecordComplete } = useRecorder();
 
   // --- Init ---
   useEffect(() => { fetchUploadedFiles(); fetchAnalytics(); }, []);
@@ -48,6 +61,8 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/api/analytics`);
       if (res.ok) setAnalyticsData(await res.json());
     } catch (e) { console.error('Analytics fetch error:', e); }
+    // Also refresh files so per-file stats stay synced
+    fetchUploadedFiles();
   };
 
   const startAnalyticsSession = (project) => {
@@ -90,24 +105,29 @@ export default function App() {
     const projectParam = params.get('project');
 
     if (projectParam) {
-      // Validate dataset exists before opening chat
+      // Validate dataset exists AND QR is active before opening chat
       fetch(`${API_BASE_URL}/api/files/${encodeURIComponent(projectParam)}/exists`)
         .then(res => res.json())
         .then(data => {
-          if (data.exists) {
+          if (data.exists && data.qr_state === 'active') {
             setIsLocked(true);
             setActiveFile(projectParam);
             setMessages([{ id: 1, type: 'ai', text: `${getGreeting()}! I'm your AI assistant for ${cleanProductName(projectParam)}. Tap to start.` }]);
             setView('chat');
             startAnalyticsSession(projectParam);
+          } else if (data.exists && (data.qr_state === 'inactive' || data.qr_state === 'destroyed')) {
+            // QR exists but is inactive or destroyed — show "unavailable" page
+            setErrorProject(projectParam);
+            setErrorReason(data.qr_state);
+            setView('qr-unavailable');
           } else {
-            // Dataset was deleted — show error
+            // Dataset file doesn't exist — show "not found" page
             setErrorProject(projectParam);
             setView('error');
           }
         })
         .catch(() => {
-          // Server unreachable — show error
+          // Server unreachable
           setErrorProject(projectParam);
           setView('error');
         });
@@ -244,9 +264,9 @@ export default function App() {
       console.error("STT Error:", e);
       setIsLoading(false);
       if (e.name === 'AbortError') {
-        alert("Voice processing timed out (60s). Please try again with a shorter message.");
+        showToast('Voice processing timed out. Please try a shorter message.');
       } else {
-        alert("Could not process audio. Check your connection and try again.");
+        showToast('Could not process audio. Check your connection and try again.');
       }
     }
   };
@@ -277,7 +297,11 @@ export default function App() {
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: textToSend, active_file: activeFile }),
+        body: JSON.stringify({
+          message: textToSend,
+          active_file: activeFile,
+          session_id: sessionIdRef.current || null,
+        }),
         signal: signal
       });
 
@@ -290,12 +314,20 @@ export default function App() {
         return;
       }
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: 'Server error' }));
+      // --- Handle QR deactivated ---
+      if (response.status === 403) {
         setMessages(prev => prev.map(msg => msg.id === aiMsgId
-          ? { ...msg, text: `⚠️ ${err.detail || 'Something went wrong.'}` }
+          ? { ...msg, text: '🔒 This project has been deactivated by the exhibitor. The bot is currently offline.' }
           : msg
         ));
+        return;
+      }
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Server error' }));
+        // Remove blank AI placeholder, show toast instead
+        setMessages(prev => prev.filter(msg => msg.id !== aiMsgId));
+        showToast(err.detail || 'Something went wrong. Please try again.');
         return;
       }
 
@@ -308,6 +340,16 @@ export default function App() {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
+
+        // --- Intercept ERROR_NOTIFICATION tokens from backend ---
+        if (chunk.includes('ERROR_NOTIFICATION:')) {
+          const errorMsg = chunk.replace('ERROR_NOTIFICATION:', '').trim();
+          // Remove the blank AI placeholder bubble
+          setMessages(prev => prev.filter(msg => msg.id !== aiMsgId));
+          showToast(errorMsg);
+          return;
+        }
+
         aiText += chunk;
         sentenceBuffer += chunk;
         if (sentenceBuffer.match(/[.!?]\s*$/)) {
@@ -321,7 +363,9 @@ export default function App() {
 
     } catch (error) {
       if (error.name !== 'AbortError') {
-        setMessages(prev => [...prev, { id: Date.now() + 2, type: 'ai', text: "⚠️ Connection Lost." }]);
+        // Remove blank AI placeholder, show toast
+        setMessages(prev => prev.filter(msg => msg.id !== aiMsgId));
+        showToast('Connection lost. Check your network and try again.');
       }
     } finally {
       setIsLoading(false);
@@ -340,6 +384,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    stopEverything();  // Stop audio + abort requests
     setView('landing');
     setIsAdmin(false);
   };
@@ -347,6 +392,73 @@ export default function App() {
   const handleLoginSuccess = () => {
     setIsAdmin(true);
     setView('exhibitor-dash');
+  };
+
+  const handleClearAnalytics = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/analytics/clear`, { method: 'DELETE' });
+      if (res.ok) {
+        const fresh = await res.json();
+        setAnalyticsData(fresh);
+        showToast('Analytics cleared — slate is clean.', 'success');
+      } else {
+        showToast('Could not clear analytics. Try again.');
+      }
+    } catch {
+      showToast('Network error while clearing analytics.');
+    }
+  };
+
+  const handleToggleQr = async (filename) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/files/${encodeURIComponent(filename)}/toggle-qr`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(prev => prev.map(f =>
+          f.name === filename ? { ...f, qr_active: data.qr_active, qr_state: data.qr_state } : f
+        ));
+        showToast(`QR for "${filename}" is now ${data.qr_state.toUpperCase()}.`, 'success');
+      } else {
+        const err = await res.json().catch(() => ({ detail: 'Error' }));
+        showToast(err.detail || 'Could not toggle QR status.');
+      }
+    } catch {
+      showToast('Network error while toggling QR.');
+    }
+  };
+
+  const handleDestroyQr = async (filename) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/files/${encodeURIComponent(filename)}/destroy-qr`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(prev => prev.map(f =>
+          f.name === filename ? { ...f, qr_active: false, qr_state: 'destroyed' } : f
+        ));
+        showToast(`QR for "${filename}" has been permanently destroyed.`, 'success');
+      } else {
+        showToast('Could not destroy QR.');
+      }
+    } catch {
+      showToast('Network error while destroying QR.');
+    }
+  };
+
+  const handleRegenerateQr = async (filename) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/files/${encodeURIComponent(filename)}/regenerate-qr`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(prev => prev.map(f =>
+          f.name === filename ? { ...f, qr_active: false, qr_state: 'inactive' } : f
+        ));
+        showToast(`QR for "${filename}" regenerated! It is now INACTIVE — activate it when ready.`, 'success');
+      } else {
+        showToast('Could not regenerate QR.');
+      }
+    } catch {
+      showToast('Network error while regenerating QR.');
+    }
   };
 
   const handleStartRecording = (e) => {
@@ -366,7 +478,20 @@ export default function App() {
   }, [isLocked, isAdmin]);
 
   const handleNavigateBack = () => {
+    stopEverything();  // Stop audio + abort requests when leaving chat
     isAdmin ? setView('exhibitor-dash') : setView('landing');
+  };
+
+  /** Exit for QR-scanned visitors — clears session and shows a goodbye page */
+  const handleExitChat = () => {
+    stopEverything();
+    setIsLocked(false);
+    setActiveFile(null);
+    setMessages([]);
+    setHasInteracted(false);
+    // Clear the ?project= URL param so refreshing doesn't re-enter chat
+    window.history.replaceState({}, '', '/');
+    setView('goodbye');
   };
 
   return (
@@ -377,6 +502,13 @@ export default function App() {
         <div className="absolute -bottom-[10%] -right-[10%] w-[50%] h-[50%] rounded-full bg-indigo-600/20 blur-[120px] animate-blob animation-delay-2000" />
       </div>
       {view === 'landing' && <LandingPage onNavigate={setView} />}
+      {view === 'goodbye' && <ThankYou />}
+      {view === 'qr-unavailable' && (
+        <QrUnavailable
+          projectName={errorProject}
+          reason={errorReason}
+        />
+      )}
       {view === 'error' && (
         <DatasetNotFound
           projectName={errorProject}
@@ -401,6 +533,11 @@ export default function App() {
           showQrFor={showQrFor}
           onCloseQr={() => setShowQrFor(null)}
           onRefreshAnalytics={fetchAnalytics}
+          onClearAnalytics={handleClearAnalytics}
+          onConvertFile={fetchUploadedFiles}
+          onToggleQr={handleToggleQr}
+          onDestroyQr={handleDestroyQr}
+          onRegenerateQr={handleRegenerateQr}
           onLogout={handleLogout}
         />
       )}
@@ -419,11 +556,98 @@ export default function App() {
           onSendMessage={sendMessageToBackend}
           onStartRecording={handleStartRecording}
           onStopRecording={stopRecording}
+          onCancelRecording={cancelRecording}
           onInitialInteraction={handleInitialInteraction}
           onNavigateBack={handleNavigateBack}
+          onExitChat={handleExitChat}
           onSetActiveFile={setActiveFile}
         />
       )}
+
+      {/* ── Toast Notifications ── */}
+      <style>{`
+        @keyframes toast-slide-in {
+          from { opacity: 0; transform: translateX(100%) scale(0.95); }
+          to   { opacity: 1; transform: translateX(0)   scale(1); }
+        }
+        @keyframes toast-slide-out {
+          from { opacity: 1; transform: translateX(0)   scale(1); }
+          to   { opacity: 0; transform: translateX(100%) scale(0.95); }
+        }
+        .lumira-toast {
+          animation: toast-slide-in 0.35s cubic-bezier(.22,1,.36,1) both;
+          pointer-events: auto;
+        }
+      `}</style>
+      <div style={{
+        position: 'fixed', top: '20px', right: '20px', zIndex: 9999,
+        display: 'flex', flexDirection: 'column', gap: '10px',
+        maxWidth: '340px', pointerEvents: 'none'
+      }}>
+        {toasts.map(toast => {
+          const isSuccess = toast.type === 'success';
+          const accentColor = isSuccess ? '16,185,129' : '239,68,68';
+          const titleColor = isSuccess ? '#6ee7b7' : '#fca5a5';
+          const titleLabel = isSuccess ? 'Done' : 'Error';
+          const iconEmoji = isSuccess ? '✓' : '⚡';
+          return (
+          <div
+            key={toast.id}
+            className="lumira-toast"
+            style={{
+              display: 'flex', alignItems: 'flex-start', gap: '12px',
+              padding: '14px 16px',
+              background: 'linear-gradient(135deg, rgba(30,10,40,0.92), rgba(20,10,35,0.96))',
+              backdropFilter: 'blur(20px)',
+              borderRadius: '14px',
+              border: `1px solid rgba(${accentColor},0.35)`,
+              boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(${accentColor},0.1), inset 0 1px 0 rgba(255,255,255,0.06)`,
+            }}
+          >
+            {/* Icon */}
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '10px', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: `rgba(${accentColor},0.15)`,
+              border: `1px solid rgba(${accentColor},0.3)`,
+              fontSize: '16px', fontWeight: 700, color: titleColor
+            }}>
+              {iconEmoji}
+            </div>
+            {/* Message */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{
+                margin: 0, fontSize: '0.78rem', fontWeight: 600,
+                color: titleColor, letterSpacing: '0.02em', marginBottom: '2px'
+              }}>
+                {titleLabel}
+              </p>
+              <p style={{
+                margin: 0, fontSize: '0.82rem', lineHeight: 1.5,
+                color: 'rgba(203,213,225,0.85)'
+              }}>
+                {toast.message}
+              </p>
+            </div>
+            {/* Dismiss */}
+            <button
+              onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'rgba(148,163,184,0.6)', fontSize: '18px',
+                lineHeight: 1, padding: '2px', flexShrink: 0,
+                pointerEvents: 'auto',
+                transition: 'color 0.2s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+              onMouseLeave={e => e.currentTarget.style.color = 'rgba(148,163,184,0.6)'}
+            >
+              ×
+            </button>
+          </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

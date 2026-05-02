@@ -1,0 +1,125 @@
+{
+  "total_files": 56,
+  "total_lines": 10859,
+  "total_code_lines": 9822,
+  "total_comment_lines": 320,
+  "total_size_kb": 402.47,
+  "code_to_comment_ratio": 30.69,
+  "avg_lines_per_file": 193.9,
+  "components": {
+    "Project Root": {
+      "files": 11,
+      "lines": 2143,
+      "blank": 165,
+      "comment": 66,
+      "code": 1912,
+      "size_bytes": 62408
+    },
+    "Backend / Core": {
+      "files": 6,
+      "lines": 1124,
+      "blank": 201,
+      "comment": 96,
+      "code": 827,
+      "size_bytes": 38931
+    },
+    "Backend / Models": {
+      "files": 2,
+      "lines": 24,
+      "blank": 10,
+      "comment": 0,
+      "code": 14,
+      "size_bytes": 397
+    },
+    "Backend / Routes": {
+      "files": 6,
+      "lines": 291,
+      "blank": 66,
+      "comment": 22,
+      "code": 203,
+      "size_bytes": 10118
+    },
+    "Backend / Services": {
+      "files": 3,
+      "lines": 98,
+      "blank": 21,
+      "comment": 14,
+      "code": 63,
+      "size_bytes": 3382
+    },
+    "Backend / Utils": {
+      "files": 1,
+      "lines": 35,
+      "blank": 9,
+      "comment": 6,
+      "code": 20,
+      "size_bytes": 1118
+    },
+    "Frontend / Core": {
+      "files": 13,
+      "lines": 4708,
+      "blank": 61,
+      "comment": 39,
+      "code": 4608,
+      "size_bytes": 165652
+    },
+    "Frontend / Components": {
+      "files": 12,
+      "lines": 2153,
+      "blank": 150,
+      "comment": 29,
+      "code": 1974,
+      "size_bytes": 118389
+    },
+    "Frontend / Hooks": {
+      "files": 2,
+      "lines": 283,
+      "blank": 34,
+      "comment": 48,
+      "code": 201,
+      "size_bytes": 11730
+    }
+  },
+  "languages": {
+    "Text": {
+      "files": 2,
+      "lines": 116,
+      "code": 116
+    },
+    "Python": {
+      "files": 18,
+      "lines": 2244,
+      "code": 1608
+    },
+    "Markdown": {
+      "files": 2,
+      "lines": 111,
+      "code": 64
+    },
+    "JSON Config": {
+      "files": 10,
+      "lines": 5341,
+      "code": 5341
+    },
+    "JavaScript": {
+      "files": 7,
+      "lines": 377,
+      "code": 291
+    },
+    "HTML": {
+      "files": 1,
+      "lines": 13,
+      "code": 13
+    },
+    "CSS": {
+      "files": 2,
+      "lines": 61,
+      "code": 52
+    },
+    "React (JSX)": {
+      "files": 14,
+      "lines": 2596,
+      "code": 2337
+    }
+  }
+}

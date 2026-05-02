@@ -1,0 +1,96 @@
+{
+  "total_python_functions": 46,
+  "total_python_classes": 9,
+  "total_jsx_components": 12,
+  "avg_function_complexity": 3.09,
+  "avg_function_length": 18.5,
+  "most_complex_functions": [
+    [
+      "backend\\bot.py",
+      "is_gibberish",
+      251,
+      45,
+      14,
+      "sync"
+    ],
+    [
+      "backend\\bot.py",
+      "ask_lumira",
+      378,
+      99,
+      12,
+      "sync"
+    ],
+    [
+      "backend\\analytics.py",
+      "get_all_analytics",
+      130,
+      78,
+      9,
+      "sync"
+    ],
+    [
+      "backend\\routes\\files.py",
+      "upload_file",
+      49,
+      40,
+      7,
+      "async"
+    ],
+    [
+      "backend\\bot.py",
+      "match_small_talk",
+      361,
+      11,
+      6,
+      "sync"
+    ]
+  ],
+  "largest_components": [
+    [
+      "AnimatedQR.jsx",
+      443,
+      18.22,
+      14,
+      2,
+      3,
+      0
+    ],
+    [
+      "PhoneDemo.jsx",
+      349,
+      14.75,
+      8,
+      2,
+      2,
+      0
+    ],
+    [
+      "ChatView.jsx",
+      305,
+      21.54,
+      4,
+      0,
+      2,
+      0
+    ],
+    [
+      "Dashboard.jsx",
+      271,
+      18.32,
+      2,
+      0,
+      0,
+      0
+    ],
+    [
+      "IntroSection.jsx",
+      258,
+      10.78,
+      8,
+      3,
+      3,
+      0
+    ]
+  ]
+}

@@ -40,6 +40,8 @@ export default function useRecorder() {
     const onRecordCompleteRef = useRef(null);
     const mimeTypeRef = useRef('');
     const recordStartTimeRef = useRef(null);
+    // When true, the onstop handler will silently discard the recorded data.
+    const cancelledRef = useRef(false);
 
     // Minimum recording duration (ms) to avoid accidental taps
     const MIN_RECORD_MS = 500;
@@ -51,6 +53,7 @@ export default function useRecorder() {
         if (e?.cancelable) e.preventDefault();
         if (isListening || isHoldRef.current) return;
         isHoldRef.current = true;
+        cancelledRef.current = false;
         try {
             let stream = streamRef.current;
             if (!stream?.active) {
@@ -72,6 +75,12 @@ export default function useRecorder() {
             };
 
             mediaRecorderRef.current.onstop = async () => {
+                // If recording was cancelled via slide-to-cancel, discard everything.
+                if (cancelledRef.current) {
+                    cancelledRef.current = false;
+                    return;
+                }
+
                 // Check if recording was too short (accidental tap)
                 const elapsed = Date.now() - (recordStartTimeRef.current || 0);
                 if (elapsed < MIN_RECORD_MS) {
@@ -111,9 +120,24 @@ export default function useRecorder() {
         }
     }, []);
 
+    /**
+     * Cancel the current recording — stops the MediaRecorder but discards the
+     * audio data instead of sending it to the onstop handler.
+     * Used by the slide-to-cancel gesture.
+     */
+    const cancelRecording = useCallback((e) => {
+        if (e?.cancelable) e.preventDefault();
+        cancelledRef.current = true;
+        isHoldRef.current = false;
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+            setIsListening(false);
+        }
+    }, []);
+
     const setOnRecordComplete = useCallback((callback) => {
         onRecordCompleteRef.current = callback;
     }, []);
 
-    return { isListening, startRecording, stopRecording, setOnRecordComplete };
+    return { isListening, startRecording, stopRecording, cancelRecording, setOnRecordComplete };
 }

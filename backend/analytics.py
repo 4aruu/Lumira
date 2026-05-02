@@ -127,8 +127,13 @@ def get_project_analytics(project: str) -> dict:
     }
 
 
-def get_all_analytics() -> dict:
-    """Get aggregated analytics across all projects + per-project breakdown."""
+def get_all_analytics(dataset_files: list[str] | None = None) -> dict:
+    """Get aggregated analytics across all projects + per-project breakdown.
+
+    Args:
+        dataset_files: Optional list of all dataset filenames on disk.
+                       If provided, projects with zero activity are also included.
+    """
     conn = _get_conn()
 
     # Overall stats
@@ -159,6 +164,8 @@ def get_all_analytics() -> dict:
 
     # Per-project breakdown
     projects = {}
+
+    # First, populate from sessions table (projects with activity)
     proj_rows = conn.execute("""
         SELECT project, COUNT(*) as visitors FROM sessions GROUP BY project
     """).fetchall()
@@ -172,6 +179,24 @@ def get_all_analytics() -> dict:
             "messages": msg_row["cnt"] if msg_row else 0,
         }
 
+    # Also check messages table for projects that have messages but no sessions
+    msg_proj_rows = conn.execute("""
+        SELECT project, COUNT(*) as cnt FROM messages GROUP BY project
+    """).fetchall()
+    for mr in msg_proj_rows:
+        p = mr["project"]
+        if p not in projects:
+            projects[p] = {
+                "visitors": 0,
+                "messages": mr["cnt"],
+            }
+
+    # Include all dataset files (even those with zero activity)
+    if dataset_files:
+        for fname in dataset_files:
+            if fname not in projects:
+                projects[fname] = {"visitors": 0, "messages": 0}
+
     return {
         "total_visitors": total_visitors,
         "total_messages": total_messages,
@@ -180,6 +205,16 @@ def get_all_analytics() -> dict:
         "peak_hours": peak_hours,
         "projects": projects,
     }
+
+
+# ---------- CLEAR ALL ----------
+
+def clear_all_analytics():
+    """Wipe all sessions and messages — hard reset to zero."""
+    conn = _get_conn()
+    conn.execute("DELETE FROM messages")
+    conn.execute("DELETE FROM sessions")
+    conn.commit()
 
 
 # Initialize DB on import

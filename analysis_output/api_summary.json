@@ -1,0 +1,101 @@
+{
+  "total_endpoints": 14,
+  "by_method": {
+    "POST": 7,
+    "GET": 6,
+    "DELETE": 1
+  },
+  "by_category": {
+    "Analytics": 4,
+    "Authentication": 2,
+    "Chat / Voice": 3,
+    "File Management": 4,
+    "Health Check": 1
+  },
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/analytics/session/start",
+      "function": "analytics_session_start",
+      "category": "Analytics"
+    },
+    {
+      "method": "POST",
+      "path": "/api/analytics/session/heartbeat",
+      "function": "analytics_session_heartbeat",
+      "category": "Analytics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics",
+      "function": "analytics_all",
+      "category": "Analytics"
+    },
+    {
+      "method": "GET",
+      "path": "/api/analytics/{project}",
+      "function": "analytics_project",
+      "category": "Analytics"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/otp/generate",
+      "function": "generate_otp",
+      "category": "Authentication"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/otp/verify",
+      "function": "verify_otp",
+      "category": "Authentication"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stt",
+      "function": "speech_to_text",
+      "category": "Chat / Voice"
+    },
+    {
+      "method": "GET",
+      "path": "/api/speak",
+      "function": "speak",
+      "category": "Chat / Voice"
+    },
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "function": "chat_endpoint",
+      "category": "Chat / Voice"
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/{filename}/exists",
+      "function": "check_file_exists",
+      "category": "File Management"
+    },
+    {
+      "method": "POST",
+      "path": "/api/upload",
+      "function": "upload_file",
+      "category": "File Management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/files",
+      "function": "list_files",
+      "category": "File Management"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/files/{filename}",
+      "function": "delete_file",
+      "category": "File Management"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "function": "read_health",
+      "category": "Health Check"
+    }
+  ]
+}

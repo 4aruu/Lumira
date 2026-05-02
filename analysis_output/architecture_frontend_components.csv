@@ -1,0 +1,13 @@
+Component,Lines,Size (KB),Hook Calls,useState Count,useEffect Count,Props Count
+AnimatedQR.jsx,443,18.22,14,2,3,0
+Button.jsx,18,1.04,0,0,0,0
+ChatView.jsx,305,21.54,4,0,2,0
+CornerLights.jsx,42,2.0,4,0,2,0
+Dashboard.jsx,271,18.32,2,0,0,0
+DatasetNotFound.jsx,90,4.63,0,0,0,0
+ExhibitorLogin.jsx,143,7.98,7,7,0,0
+IntroSection.jsx,258,10.78,8,3,3,0
+LandingPage.jsx,211,15.15,0,0,0,0
+MouseGlow.jsx,21,0.89,6,2,2,0
+PhoneDemo.jsx,349,14.75,8,2,2,0
+WaterFlow.jsx,14,0.31,0,0,0,0

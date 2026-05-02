@@ -1,0 +1,13 @@
+{
+  "python_total": 116,
+  "javascript_total": 19,
+  "python_categories": {
+    "Utility": 102,
+    "Security / Config": 5,
+    "AI / Vector Store": 7,
+    "Document Processing": 1,
+    "Web Framework": 1
+  },
+  "js_production": 5,
+  "js_development": 14
+}

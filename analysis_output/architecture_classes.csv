@@ -1,0 +1,10 @@
+File,Class,Start Line,Lines,Methods
+backend\auth.py,OTPManager,14,75,6
+backend\auth.py,EmailService,91,70,2
+backend\auth.py,RateLimiter,169,31,2
+backend\bot.py,ConversationMemory,23,38,5
+backend\models\schemas.py,ChatRequest,4,3,0
+backend\models\schemas.py,OTPGenerateRequest,9,2,0
+backend\models\schemas.py,OTPVerifyRequest,13,3,0
+backend\models\schemas.py,SessionStartRequest,18,3,0
+backend\models\schemas.py,SessionHeartbeatRequest,23,2,0

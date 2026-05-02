@@ -1,0 +1,15 @@
+{
+  "total_sessions": 45,
+  "total_messages": 312,
+  "unique_projects": 5,
+  "avg_messages_per_session": 6.9,
+  "avg_session_duration_sec": 205.0,
+  "role_distribution": {
+    "user": 156,
+    "ai": 156
+  },
+  "peak_hour": 8,
+  "peak_hour_count": 56,
+  "busiest_day": "2026-03-03",
+  "busiest_day_count": 92
+}

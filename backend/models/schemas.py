@@ -1,9 +1,11 @@
+from typing import Optional
 from pydantic import BaseModel
 
 
 class ChatRequest(BaseModel):
     message: str
-    active_file: str = None
+    active_file: Optional[str] = None
+    session_id: Optional[str] = None   # visitor session — scopes conversation memory
 
 
 class OTPGenerateRequest(BaseModel):

@@ -1,13 +1,63 @@
-import React, { useRef, useEffect } from 'react';
-import { Mic, Send, Sparkles, ChevronLeft, Zap } from 'lucide-react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { Mic, Send, Sparkles, ChevronLeft, Zap, X, LogOut } from 'lucide-react';
+
+const CANCEL_THRESHOLD = 100; // px slide-left to cancel
 
 const ChatView = ({
     messages, textInput, setTextInput,
     isLoading, isListening, isLocked, hasInteracted, isAdmin,
     activeFile, files,
-    onSendMessage, onStartRecording, onStopRecording,
-    onInitialInteraction, onNavigateBack, onSetActiveFile
+    onSendMessage, onStartRecording, onStopRecording, onCancelRecording,
+    onInitialInteraction, onNavigateBack, onExitChat, onSetActiveFile
 }) => {
+    // ── Slide-to-cancel state ──
+    const touchStartXRef = useRef(0);
+    const [slideOffset, setSlideOffset] = useState(0);   // px slid left (positive = left)
+    const [isCancelling, setIsCancelling] = useState(false);
+    const [recordSeconds, setRecordSeconds] = useState(0);
+    const timerRef = useRef(null);
+
+    // Start/stop recording timer
+    useEffect(() => {
+        if (isListening) {
+            setRecordSeconds(0);
+            timerRef.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
+        } else {
+            clearInterval(timerRef.current);
+            setSlideOffset(0);
+            setIsCancelling(false);
+        }
+        return () => clearInterval(timerRef.current);
+    }, [isListening]);
+
+    const formatTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+    // Touch handlers for the mic button area
+    const handleTouchStart = useCallback((e) => {
+        touchStartXRef.current = e.touches[0].clientX;
+        setSlideOffset(0);
+        setIsCancelling(false);
+        onStartRecording(e);
+    }, [onStartRecording]);
+
+    const handleTouchMove = useCallback((e) => {
+        if (!isListening) return;
+        const dx = touchStartXRef.current - e.touches[0].clientX; // positive = slid left
+        const clamped = Math.max(0, Math.min(dx, 200));
+        setSlideOffset(clamped);
+        setIsCancelling(clamped >= CANCEL_THRESHOLD);
+    }, [isListening]);
+
+    const handleTouchEnd = useCallback((e) => {
+        if (!isListening) return;
+        if (isCancelling) {
+            onCancelRecording(e);
+        } else {
+            onStopRecording(e);
+        }
+        setSlideOffset(0);
+        setIsCancelling(false);
+    }, [isListening, isCancelling, onCancelRecording, onStopRecording]);
     const chatEndRef = useRef(null);
 
     useEffect(() => {
@@ -25,6 +75,7 @@ const ChatView = ({
         @keyframes chat-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
         @keyframes chat-wave { 0%,100%{transform:scaleY(0.4)} 50%{transform:scaleY(1)} }
         @keyframes land-fadeUp { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes slide-hint { 0%,100%{transform:translateX(0)} 50%{transform:translateX(-8px)} }
         .chat-msg-enter { animation: chat-msg-in 0.4s cubic-bezier(.22,1,.36,1) both; }
       `}</style>
 
@@ -106,6 +157,20 @@ const ChatView = ({
                         )}
                     </div>
                 </div>
+
+                {/* Exit button — visible for QR visitors (locked, non-admin) */}
+                {isLocked && !isAdmin && (
+                    <button onClick={onExitChat}
+                        title="Exit chat"
+                        style={{
+                            padding: '8px', borderRadius: '12px',
+                            background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+                            color: '#f87171', cursor: 'pointer', transition: 'all 0.2s', display: 'flex'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.background = 'rgba(239,68,68,0.2)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                    ><LogOut size={18} /></button>
+                )}
             </div>
 
             {/* ── Message Area ── */}
@@ -188,9 +253,9 @@ const ChatView = ({
                 {/* Subtle top glow */}
                 <div style={{ position: 'absolute', top: '-1px', left: '10%', right: '10%', height: '1px', background: 'linear-gradient(90deg,transparent,rgba(139,92,246,0.3),transparent)' }} />
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     {/* Input container with glow */}
-                    <div style={{ flex: 1, position: 'relative' }}>
+                    <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
                         <div style={{ position: 'absolute', inset: '-1px', borderRadius: '9999px', background: 'linear-gradient(135deg,rgba(139,92,246,0.15),rgba(99,102,241,0.1),rgba(139,92,246,0.15))', backgroundSize: '200% 100%', animation: 'chat-shimmer 4s linear infinite', pointerEvents: 'none', opacity: 0.6 }} />
                         <input
                             type="text"
@@ -198,9 +263,9 @@ const ChatView = ({
                             onChange={(e) => setTextInput(e.target.value)}
                             placeholder={isLoading ? "Processing..." : "Ask Lumira anything..."}
                             style={{
-                                width: '100%', position: 'relative',
+                                width: '100%', boxSizing: 'border-box', position: 'relative',
                                 background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(12px)',
-                                color: '#fff', borderRadius: '9999px', padding: '14px 52px 14px 20px', fontSize: '0.9rem',
+                                color: '#fff', borderRadius: '9999px', padding: '14px 48px 14px 16px', fontSize: '0.9rem',
                                 border: '1px solid rgba(255,255,255,0.08)', outline: 'none',
                                 boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.2)',
                                 transition: 'border-color 0.3s ease, box-shadow 0.3s ease'
@@ -222,14 +287,15 @@ const ChatView = ({
                         ><Send size={18} /></button>
                     </div>
 
-                    {/* Clay mic button */}
+                    {/* Clay mic button — touch events handle slide-to-cancel */}
                     <button
                         onMouseDown={onStartRecording}
                         onMouseUp={onStopRecording}
                         onMouseLeave={onStopRecording}
-                        onTouchStart={onStartRecording}
-                        onTouchEnd={onStopRecording}
-                        onTouchCancel={onStopRecording}
+                        onTouchStart={handleTouchStart}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
+                        onTouchCancel={(e) => { onCancelRecording(e); setSlideOffset(0); setIsCancelling(false); }}
                         onContextMenu={(e) => e.preventDefault()}
                         style={{
                             WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none', touchAction: 'none',
@@ -251,13 +317,16 @@ const ChatView = ({
                 </div>
             </div>
 
-            {/* ── Immersive Listening Overlay ── */}
+            {/* ── Immersive Listening Overlay with Slide-to-Cancel ── */}
             {isListening && (
                 <div style={{
                     position: 'absolute', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                    background: 'radial-gradient(ellipse at center, rgba(239,68,68,0.06) 0%, rgba(2,6,23,0.85) 60%)',
+                    background: isCancelling
+                        ? 'radial-gradient(ellipse at center, rgba(239,68,68,0.12) 0%, rgba(2,6,23,0.92) 60%)'
+                        : 'radial-gradient(ellipse at center, rgba(239,68,68,0.06) 0%, rgba(2,6,23,0.85) 60%)',
                     backdropFilter: 'blur(24px)', pointerEvents: 'none',
-                    animation: 'land-fadeUp 0.3s ease-out both'
+                    animation: 'land-fadeUp 0.3s ease-out both',
+                    transition: 'background 0.3s ease'
                 }}>
                     {/* Concentric rings */}
                     <div style={{ position: 'relative', marginBottom: '32px' }}>
@@ -270,31 +339,62 @@ const ChatView = ({
                                 animationDelay: `${i * 0.3}s`
                             }} />
                         ))}
-                        {/* Center mic */}
+                        {/* Center mic / cancel icon */}
                         <div style={{
                             width: '100px', height: '100px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: 'linear-gradient(135deg,rgba(239,68,68,0.3),rgba(220,38,38,0.2))',
+                            background: isCancelling
+                                ? 'linear-gradient(135deg,rgba(239,68,68,0.5),rgba(220,38,38,0.4))'
+                                : 'linear-gradient(135deg,rgba(239,68,68,0.3),rgba(220,38,38,0.2))',
                             backdropFilter: 'blur(12px)',
                             border: '1px solid rgba(255,255,255,0.1)',
-                            boxShadow: '0 0 50px rgba(239,68,68,0.3), inset 0 1px 0 rgba(255,255,255,0.1)',
-                            animation: 'chat-float 2s ease-in-out infinite'
+                            boxShadow: isCancelling
+                                ? '0 0 60px rgba(239,68,68,0.5), inset 0 1px 0 rgba(255,255,255,0.1)'
+                                : '0 0 50px rgba(239,68,68,0.3), inset 0 1px 0 rgba(255,255,255,0.1)',
+                            animation: isCancelling ? 'none' : 'chat-float 2s ease-in-out infinite',
+                            transform: isCancelling ? 'scale(1.15)' : 'scale(1)',
+                            transition: 'all 0.25s ease'
                         }}>
-                            <Mic size={40} style={{ color: '#fca5a5', filter: 'drop-shadow(0 0 10px rgba(239,68,68,0.5))' }} />
+                            {isCancelling
+                                ? <X size={44} style={{ color: '#fca5a5', filter: 'drop-shadow(0 0 10px rgba(239,68,68,0.7))' }} />
+                                : <Mic size={40} style={{ color: '#fca5a5', filter: 'drop-shadow(0 0 10px rgba(239,68,68,0.5))' }} />
+                            }
                         </div>
                     </div>
-                    {/* Audio wave bars */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '20px' }}>
-                        {[0, 1, 2, 3, 4, 5, 6].map(i => (
-                            <div key={i} style={{
-                                width: '3px', height: '24px', borderRadius: '2px',
-                                background: 'linear-gradient(180deg,#fca5a5,#ef4444)',
-                                animation: `chat-wave 0.8s ease-in-out infinite`,
-                                animationDelay: `${i * 0.1}s`
-                            }} />
-                        ))}
+
+                    {/* Recording timer */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', animation: 'chat-pulse-ring 1.5s ease-out infinite' }} />
+                        <span style={{ fontSize: '1.1rem', fontWeight: 600, color: '#fca5a5', fontFamily: 'monospace' }}>{formatTime(recordSeconds)}</span>
                     </div>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff', letterSpacing: '-0.01em' }}>Listening...</h3>
-                    <p style={{ marginTop: '8px', color: 'rgba(252,165,165,0.7)', fontSize: '0.8rem' }}>Release to send</p>
+
+                    {/* Audio wave bars */}
+                    {!isCancelling && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginBottom: '20px' }}>
+                            {[0, 1, 2, 3, 4, 5, 6].map(i => (
+                                <div key={i} style={{
+                                    width: '3px', height: '24px', borderRadius: '2px',
+                                    background: 'linear-gradient(180deg,#fca5a5,#ef4444)',
+                                    animation: `chat-wave 0.8s ease-in-out infinite`,
+                                    animationDelay: `${i * 0.1}s`
+                                }} />
+                            ))}
+                        </div>
+                    )}
+
+                    {isCancelling ? (
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ef4444', letterSpacing: '-0.01em' }}>Release to cancel</h3>
+                    ) : (
+                        <>
+                            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff', letterSpacing: '-0.01em' }}>Listening...</h3>
+                            <p style={{
+                                marginTop: '10px', color: 'rgba(252,165,165,0.6)', fontSize: '0.8rem',
+                                animation: 'slide-hint 2s ease-in-out infinite',
+                                display: 'flex', alignItems: 'center', gap: '6px'
+                            }}>
+                                <span>‹</span> slide to cancel
+                            </p>
+                        </>
+                    )}
                 </div>
             )}
         </div>

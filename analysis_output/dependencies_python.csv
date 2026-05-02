@@ -1,0 +1,117 @@
+Package,Version Constraint,Category,Runtime
+aiohappyeyeballs,==2.6.1,Utility,Python
+aiohttp,==3.12.15,Utility,Python
+aiosignal,==1.4.0,Utility,Python
+annotated-types,==0.7.0,Utility,Python
+anyio,==4.10.0,Utility,Python
+attrs,==25.3.0,Utility,Python
+backoff,==2.2.1,Utility,Python
+bcrypt,==4.3.0,Security / Config,Python
+build,==1.3.0,Utility,Python
+cachetools,==5.5.2,Utility,Python
+certifi,==2025.8.3,Utility,Python
+charset-normalizer,==3.4.3,Utility,Python
+chromadb,==1.0.21,AI / Vector Store,Python
+click,==8.2.1,Utility,Python
+colorama,==0.4.6,Utility,Python
+coloredlogs,==15.0.1,Utility,Python
+dataclasses-json,==0.6.7,Utility,Python
+distro,==1.9.0,Utility,Python
+durationpy,==0.10,Utility,Python
+filelock,==3.19.1,Utility,Python
+flatbuffers,==25.2.10,Utility,Python
+frozenlist,==1.7.0,Utility,Python
+fsspec,==2025.9.0,Utility,Python
+google-auth,==2.40.3,Security / Config,Python
+googleapis-common-protos,==1.70.0,Utility,Python
+greenlet,==3.2.4,Utility,Python
+grpcio,==1.75.0,Utility,Python
+h11,==0.16.0,Utility,Python
+httpcore,==1.0.9,Utility,Python
+httptools,==0.6.4,Utility,Python
+httpx,==0.28.1,Utility,Python
+httpx-sse,==0.4.1,Utility,Python
+huggingface-hub,==0.35.0,Utility,Python
+humanfriendly,==10.0,Utility,Python
+idna,==3.10,Utility,Python
+importlib_metadata,==8.7.0,Utility,Python
+importlib_resources,==6.5.2,Utility,Python
+jsonpatch,==1.33,Utility,Python
+jsonpointer,==3.0.0,Utility,Python
+jsonschema,==4.25.1,Utility,Python
+jsonschema-specifications,==2025.9.1,Utility,Python
+kubernetes,==33.1.0,Utility,Python
+langchain,==0.3.27,AI / Vector Store,Python
+langchain-chroma,==0.2.6,AI / Vector Store,Python
+langchain-community,==0.3.29,AI / Vector Store,Python
+langchain-core,==0.3.76,AI / Vector Store,Python
+langchain-ollama,==0.3.8,AI / Vector Store,Python
+langchain-text-splitters,==0.3.11,AI / Vector Store,Python
+langsmith,==0.4.28,Utility,Python
+markdown-it-py,==4.0.0,Utility,Python
+marshmallow,==3.26.1,Utility,Python
+mdurl,==0.1.2,Utility,Python
+mmh3,==5.2.0,Utility,Python
+mpmath,==1.3.0,Utility,Python
+multidict,==6.6.4,Utility,Python
+mypy_extensions,==1.1.0,Utility,Python
+numpy,==2.3.3,Utility,Python
+oauthlib,==3.3.1,Security / Config,Python
+ollama,==0.5.4,Utility,Python
+onnxruntime,==1.22.1,Utility,Python
+opentelemetry-api,==1.37.0,Utility,Python
+opentelemetry-exporter-otlp-proto-common,==1.37.0,Utility,Python
+opentelemetry-exporter-otlp-proto-grpc,==1.37.0,Utility,Python
+opentelemetry-proto,==1.37.0,Utility,Python
+opentelemetry-sdk,==1.37.0,Utility,Python
+opentelemetry-semantic-conventions,==0.58b0,Utility,Python
+orjson,==3.11.3,Utility,Python
+overrides,==7.7.0,Utility,Python
+packaging,==25.0,Utility,Python
+pandas,==2.3.2,Utility,Python
+posthog,==5.4.0,Utility,Python
+propcache,==0.3.2,Utility,Python
+protobuf,==6.32.1,Utility,Python
+pyasn1,==0.6.1,Utility,Python
+pyasn1_modules,==0.4.2,Utility,Python
+pybase64,==1.4.2,Utility,Python
+pydantic,==2.11.9,Utility,Python
+pydantic-settings,==2.10.1,Utility,Python
+pydantic_core,==2.33.2,Utility,Python
+Pygments,==2.19.2,Utility,Python
+pypdf,==6.0.0,Document Processing,Python
+PyPika,==0.48.9,Utility,Python
+pyproject_hooks,==1.2.0,Utility,Python
+pyreadline3,==3.5.4,Utility,Python
+python-dateutil,==2.9.0.post0,Utility,Python
+python-dotenv,==1.1.1,Security / Config,Python
+pytz,==2025.2,Utility,Python
+PyYAML,==6.0.2,Utility,Python
+referencing,==0.36.2,Utility,Python
+requests,==2.32.5,Utility,Python
+requests-oauthlib,==2.0.0,Security / Config,Python
+requests-toolbelt,==1.0.0,Utility,Python
+rich,==14.1.0,Utility,Python
+rpds-py,==0.27.1,Utility,Python
+rsa,==4.9.1,Utility,Python
+shellingham,==1.5.4,Utility,Python
+six,==1.17.0,Utility,Python
+sniffio,==1.3.1,Utility,Python
+SQLAlchemy,==2.0.43,Utility,Python
+sympy,==1.14.0,Utility,Python
+tenacity,==9.1.2,Utility,Python
+tokenizers,==0.22.0,Utility,Python
+tqdm,==4.67.1,Utility,Python
+typer,==0.17.4,Utility,Python
+typing-inspect,==0.9.0,Utility,Python
+typing-inspection,==0.4.1,Utility,Python
+typing_extensions,==4.15.0,Utility,Python
+tzdata,==2025.2,Utility,Python
+urllib3,==2.5.0,Utility,Python
+uvicorn,==0.35.0,Web Framework,Python
+watchfiles,==1.1.0,Utility,Python
+websocket-client,==1.8.0,Utility,Python
+websockets,==15.0.1,Utility,Python
+yarl,==1.20.1,Utility,Python
+zipp,==3.23.0,Utility,Python
+zstandard,==0.25.0,Utility,Python

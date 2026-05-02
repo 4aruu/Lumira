@@ -1,19 +1,22 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
     UploadCloud, FileText, BarChart3,
     QrCode as QrIcon, Sparkles, LogOut, Trash2, RefreshCw, Play,
-    Users, MessageSquare, Clock, Activity, X
+    Users, MessageSquare, Clock, Activity, X, Eraser, BookOpen, Loader, Power, Skull, RefreshCcw
 } from 'lucide-react';
-import { CLIENT_URL } from '../config';
+import { CLIENT_URL, API_BASE_URL } from '../config';
 import AnimatedQR from './AnimatedQR';
 
 const Dashboard = ({
     files, analyticsData,
     onNavigate, onDeleteFile, onFileSelect,
     onOpenChat, onShowQr, showQrFor, onCloseQr,
-    onRefreshAnalytics, onLogout
+    onRefreshAnalytics, onClearAnalytics, onConvertFile, onToggleQr, onDestroyQr, onRegenerateQr, onLogout
 }) => {
     const fileInputRef = useRef(null);
+    const convertInputRef = useRef(null);
+    const [converting, setConverting] = useState(false);
+    const [convertStatus, setConvertStatus] = useState(null); // {type:'success'|'error', msg:''}
 
     return (
         <div className="flex h-full z-10 relative">
@@ -52,19 +55,39 @@ const Dashboard = ({
                     <h2 className="text-3xl font-bold text-white bg-clip-text text-transparent bg-gradient-to-r from-white to-violet-200">
                         Knowledge Base
                     </h2>
-                    <button
-                        onClick={onRefreshAnalytics}
-                        style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '6px',
-                            padding: '8px 16px', borderRadius: '12px', fontSize: '0.8rem',
-                            background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)',
-                            color: '#a78bfa', cursor: 'pointer', transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.2)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.1)'; }}
-                    >
-                        <RefreshCw size={14} /> Refresh Stats
-                    </button>
+                    {/* ── Action Buttons ── */}
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <button
+                            onClick={onRefreshAnalytics}
+                            style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                padding: '8px 16px', borderRadius: '12px', fontSize: '0.8rem',
+                                background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)',
+                                color: '#a78bfa', cursor: 'pointer', transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.2)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.1)'; }}
+                        >
+                            <RefreshCw size={14} /> Refresh Stats
+                        </button>
+                        <button
+                            onClick={() => {
+                                if (window.confirm('This will permanently wipe ALL visitor counts, messages, and session history. This cannot be undone.\n\nAre you sure?')) {
+                                    onClearAnalytics && onClearAnalytics();
+                                }
+                            }}
+                            style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                padding: '8px 16px', borderRadius: '12px', fontSize: '0.8rem',
+                                background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+                                color: '#f87171', cursor: 'pointer', transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.18)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; }}
+                        >
+                            <Eraser size={14} /> Clear All
+                        </button>
+                    </div>
                 </div>
 
                 {/* ── Analytics Cards ── */}
@@ -151,6 +174,74 @@ const Dashboard = ({
                 )}
 
                 <input type="file" ref={fileInputRef} onChange={onFileSelect} className="hidden" accept="application/pdf" />
+                <input
+                    type="file"
+                    ref={convertInputRef}
+                    className="hidden"
+                    accept=".pdf,.txt,.docx"
+                    onChange={async (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
+                        setConverting(true);
+                        setConvertStatus(null);
+                        try {
+                            const formData = new FormData();
+                            formData.append('file', file);
+                            const res = await fetch(`${API_BASE_URL}/api/convert`, {
+                                method: 'POST', body: formData
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.detail || 'Conversion failed');
+                            setConvertStatus({ type: 'success', msg: `✅ "${data.dataset_filename}" created from ${(data.characters_extracted / 1000).toFixed(1)}k characters. Ingesting now…` });
+                            onConvertFile && onConvertFile();
+                        } catch (err) {
+                            setConvertStatus({ type: 'error', msg: `❌ ${err.message}` });
+                        } finally {
+                            setConverting(false);
+                            e.target.value = '';
+                        }
+                    }}
+                />
+
+                {/* ── Convert Document Zone ── */}
+                <div
+                    onClick={() => !converting && convertInputRef.current.click()}
+                    className="relative group cursor-pointer mb-6"
+                    style={{ opacity: converting ? 0.7 : 1 }}
+                >
+                    <div className="absolute -inset-1 bg-gradient-to-r from-indigo-600/15 to-cyan-600/15 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
+                    <div
+                        className="relative border-2 border-dashed border-slate-700/50 group-hover:border-indigo-500/50 rounded-3xl p-8 text-center bg-gradient-to-br from-slate-900/60 to-slate-800/60 backdrop-blur-xl transition-all duration-300 shadow-xl"
+                        style={{ display: 'flex', alignItems: 'center', gap: '24px', justifyContent: 'center' }}
+                    >
+                        {converting
+                            ? <Loader size={36} className="text-indigo-400 animate-spin" />
+                            : <BookOpen size={36} className="text-indigo-400 group-hover:scale-110 transition-transform" />
+                        }
+                        <div style={{ textAlign: 'left' }}>
+                            <p className="text-white font-semibold text-base mb-1">
+                                {converting ? 'Converting document…' : 'Convert Document → Dataset'}
+                            </p>
+                            <p className="text-slate-400 text-xs">
+                                Upload PDF, TXT, or DOCX — extracts all knowledge into a searchable dataset
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Convert Status Banner */}
+                {convertStatus && (
+                    <div style={{
+                        marginBottom: '16px', padding: '12px 16px', borderRadius: '12px', fontSize: '0.82rem',
+                        background: convertStatus.type === 'success' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                        border: `1px solid ${convertStatus.type === 'success' ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                        color: convertStatus.type === 'success' ? '#6ee7b7' : '#f87171',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                    }}>
+                        <span>{convertStatus.msg}</span>
+                        <button onClick={() => setConvertStatus(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: '18px', lineHeight: 1, padding: '0 4px' }}>×</button>
+                    </div>
+                )}
 
                 {/* Upload Zone - Clay Morphism */}
                 <div
@@ -185,32 +276,76 @@ const Dashboard = ({
                                 </div>
 
                                 <div className="flex items-center gap-3">
-                                    {/* Per-file analytics badges */}
-                                    {analyticsData?.projects?.[f.name] && (
-                                        <div style={{ display: 'flex', gap: '6px' }}>
-                                            <span style={{
-                                                fontSize: '0.65rem', fontFamily: 'monospace', padding: '4px 8px', borderRadius: '8px',
-                                                background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', color: '#a78bfa'
-                                            }}>
-                                                {analyticsData.projects[f.name].visitors} visits
-                                            </span>
-                                            <span style={{
-                                                fontSize: '0.65rem', fontFamily: 'monospace', padding: '4px 8px', borderRadius: '8px',
-                                                background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8'
-                                            }}>
-                                                {analyticsData.projects[f.name].messages} msgs
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div className={`text-xs font-bold px-4 py-2 rounded-full font-mono ${f.status === 'Active' ? 'text-violet-400 bg-violet-400/10 border border-violet-500/30' : 'text-green-400 bg-green-400/10 border border-green-500/30'}`}>
-                                        {f.status === 'Active' ? "● ACTIVE" : "ANALYZING..."}
+                                    {/* Per-file analytics badges — always show */}
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <span style={{
+                                            fontSize: '0.65rem', fontFamily: 'monospace', padding: '4px 8px', borderRadius: '8px',
+                                            background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', color: '#a78bfa'
+                                        }}>
+                                            {analyticsData?.projects?.[f.name]?.visitors ?? 0} visits
+                                        </span>
+                                        <span style={{
+                                            fontSize: '0.65rem', fontFamily: 'monospace', padding: '4px 8px', borderRadius: '8px',
+                                            background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: '#818cf8'
+                                        }}>
+                                            {analyticsData?.projects?.[f.name]?.messages ?? 0} msgs
+                                        </span>
                                     </div>
-                                    <button
-                                        onClick={() => onOpenChat(f.name)}
-                                        className="p-3 text-violet-400 hover:text-white hover:bg-violet-600/20 rounded-xl transition-all border border-transparent hover:border-violet-500/50"
-                                    >
-                                        <Play size={20} />
-                                    </button>
+                                    {/* QR lifecycle state button */}
+                                    {f.qr_state === 'destroyed' ? (
+                                        <div
+                                            className="text-xs font-bold px-4 py-2 rounded-full font-mono border text-slate-500 bg-slate-500/5 border-slate-600/30"
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', opacity: 0.6 }}
+                                        >
+                                            <Skull size={12} />
+                                            DESTROYED
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => onToggleQr && onToggleQr(f.name)}
+                                            title={f.qr_state === 'active' ? 'Click to deactivate QR' : 'Click to activate QR'}
+                                            className={`text-xs font-bold px-4 py-2 rounded-full font-mono cursor-pointer transition-all duration-200 border ${
+                                                f.qr_state === 'active'
+                                                    ? 'text-green-400 bg-green-400/10 border-green-500/30 hover:bg-green-400/20'
+                                                    : 'text-amber-400 bg-amber-400/10 border-amber-500/30 hover:bg-amber-400/20'
+                                            }`}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                                        >
+                                            <Power size={12} />
+                                            {f.qr_state === 'active' ? 'ACTIVE' : 'INACTIVE'}
+                                        </button>
+                                    )}
+                                    {/* Destroy / Regenerate QR button */}
+                                    {f.qr_state === 'destroyed' ? (
+                                        <button
+                                            onClick={() => onRegenerateQr && onRegenerateQr(f.name)}
+                                            title="Regenerate QR for a new event"
+                                            className="p-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 rounded-xl transition-all border border-transparent hover:border-emerald-500/50"
+                                        >
+                                            <RefreshCcw size={16} />
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => {
+                                                if (window.confirm(`⚠️ PERMANENTLY destroy QR for "${f.name}"?\n\nThis will invalidate all printed/shared QR copies.\nYou can regenerate a NEW QR afterwards.\n\nThe dataset and analytics will NOT be deleted.`)) {
+                                                    onDestroyQr && onDestroyQr(f.name);
+                                                }
+                                            }}
+                                            title="Destroy QR (invalidates all copies)"
+                                            className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all border border-transparent hover:border-red-500/50"
+                                        >
+                                            <Skull size={16} />
+                                        </button>
+                                    )}
+                                    {/* Play button — hidden for destroyed QRs */}
+                                    {f.qr_state !== 'destroyed' && (
+                                        <button
+                                            onClick={() => onOpenChat(f.name)}
+                                            className="p-3 text-violet-400 hover:text-white hover:bg-violet-600/20 rounded-xl transition-all border border-transparent hover:border-violet-500/50"
+                                        >
+                                            <Play size={20} />
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => onShowQr(f.name)}
                                         className="p-3 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-xl transition-all border border-transparent hover:border-white/10"

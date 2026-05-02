@@ -1,0 +1,10 @@
+Component,Files,Total Lines,Code Lines,Comment Lines,Blank Lines,Size (KB)
+Backend / Core,6,1124,827,96,201,38.02
+Backend / Models,2,24,14,0,10,0.39
+Backend / Routes,6,291,203,22,66,9.88
+Backend / Services,3,98,63,14,21,3.3
+Backend / Utils,1,35,20,6,9,1.09
+Frontend / Components,12,2153,1974,29,150,115.61
+Frontend / Core,13,4708,4608,39,61,161.77
+Frontend / Hooks,2,283,201,48,34,11.46
+Project Root,11,2143,1912,66,165,60.95
